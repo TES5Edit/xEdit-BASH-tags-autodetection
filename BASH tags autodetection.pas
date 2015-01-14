@@ -2,7 +2,7 @@
 	Purpose: Bash Tagger
 	Game: FO3/FNV/TESV
 	Author: fireundubh <fireundubh@gmail.com>
-	Version: 1.3.6 (based on "BASH tags autodetection.pas" v1.0)
+	Version: 1.3.7 (based on "BASH tags autodetection.pas" v1.0)
 
 	Description: This script detects up to 49 bash tags in FO3, FNV, and Skyrim plugins.
 		Tags automatically replace the Description in the File Header. Wrye Bash/Flash can
@@ -30,42 +30,86 @@ var
 	fn, tag, game: string;
 	optionSelected: integer;
 
+{==================================================================}
+{Returns True if the string is uppercase and False if not}
+function IsIndexedPath(x: string): boolean;
+begin
+	Result := pos('[', x);
+end;
+
+{==================================================================}
+{Returns True if the string is uppercase and False if not}
+function IsPath(x: string): boolean;
+begin
+	Result := pos('\', x);
+end;
+
+{==================================================================}
+{Returns True if the string is uppercase and False if not}
+function IsUppercase(x: string): boolean;
+begin
+	Result := (x = Uppercase(x));
+end;
+
+{==================================================================}
+// Universal ElementBy
+function GetElement(e: IInterface; x: string): IInterface;
+begin
+	if IsIndexedPath(x) then
+		Result := ElementByIP(e, x);
+	
+	if IsUppercase(x) then
+		Result := ElementBySignature(e, x);
+
+	if IsPath(x) then
+		Result := ElementByPath(e, x);
+
+	if not IsUpperCase(x) then
+		Result := ElementByName(e, x);
+end;
+
+{==================================================================}
+// Debug Message
+function ShowDebugMessageFromElement(x, y: IInterface; t: string): integer;
+begin
+	AddMessage(t + ': ' + FullPath(x));
+	AddMessage(t + ': ' + FullPath(y));
+end;
+
+{==================================================================}
+// Debug Message
+function ShowDebugMessageFromString(x, y: IInterface; p, t: string): integer;
+begin
+	AddMessage(t + ': ' + FullPath(GetElement(x, p)));
+	AddMessage(t + ': ' + FullPath(GetElement(y, p)));
+end;
+
+{==================================================================}
 {Return true if the loaded game is Fallout 3}
 function IsFallout3(game: string): boolean;
 begin
 	Result := (game = 'Fallout3.esm');
 end;
 
+{==================================================================}
 {Return true if the loaded game is Fallout: New Vegas}
 function IsFalloutNV(const game: string): boolean;
 begin
 	Result := (game = 'FalloutNV.esm');
 end;
 
+{==================================================================}
 {Return true if the loaded game is TES4: Oblivion}
 function IsOblivion(const game: string): boolean;
 begin
 	Result := (game = 'Oblivion.esm');
 end;
 
+{==================================================================}
 {Return true if the loaded game is TES4: Skyrim}
 function IsSkyrim(const game: string): boolean;
 begin
 	Result := (game = 'Skyrim.esm');
-end;
-
-{==================================================================}
-{Return True if any flags are set and False if not}
-function IsAnyFlagSet(f: IInterface): boolean;
-begin
-	Result := (GetNativeValue(f) > 0);
-end;
-
-{==================================================================}
-{Return True if specific flag is set and False if not}
-function IsFlagSet(f: IInterface; i: integer): boolean;
-begin
-	Result := (GetNativeValue(f) and i > 0);
 end;
 
 {==================================================================}
@@ -108,15 +152,27 @@ begin
 end;
 
 {==================================================================}
-{Return the integer value of an ACBS template flag}
-function GetTemplateFlag(s: string): integer;
+{Returns True if the element has a any flags and False if not}
+function HasAnyFlag(x: IInterface): boolean;
 var
-	templateFlag: TStringList;
+	f: TStringList;
 begin
-	templateFlag := TStringList.Create;
-	templateFlag.DelimitedText := '"Use Traits=1", "Use Stats=2", "Use Factions=4", "Use Actor Effect List=8", "Use AI Data=16", "Use AI Packages=32", "Use Model/Animation=64", "Use Base Data=128", "Use Inventory=256", "Use Script=512"';
-	Result := StrToInt(templateFlag.Values[s]);
-	templateFlag.Free;
+	f := TStringList.Create;
+	f.Text := FlagValues(x);
+	Result := (f.Count <> 0);
+	f.Free;
+end;
+
+{==================================================================}
+{Returns True if the element has a specific flag and False if not}
+function HasFlag(x: IInterface; y: string): boolean;
+var
+	f: TStringList;
+begin
+	f := TStringList.Create;
+	f.Text := FlagValues(x);
+	Result := (f.IndexOf(y) <> -1);
+	f.Free;
 end;
 
 {==================================================================}
@@ -126,13 +182,16 @@ end;
 function Validate(x, y: IInterface; tag: string; debug: boolean): integer;
 var
 	i, j, k, l, m: integer;
-begin
-	{Exit if the tag already exists}
-	if TagExists(tag) then
+begin	
+	if (ConflictAllForElements(x, y, False, IsInjected(Master(y))) < caOverride) then
 		exit;
-
+	
 	{Exit if the first element doesn't exist}
 	if not Assigned(x) then
+		exit;
+
+	{Exit if the tag already exists}
+	if TagExists(tag) then
 		exit;
 
 	{Suggest tag if one element exists while the other does not}
@@ -216,6 +275,13 @@ begin
 end;
 
 {==================================================================}
+// Validate Aliases
+function Evaluate(x, y: IInterface; z: string; tag: string; debug: boolean): integer;
+begin
+	Validate(GetElement(x, z), GetElement(y, z), tag, debug);
+end;
+
+{==================================================================}
 // Delev, Relev (written by the xEdit team)
 function CheckDelevRelev(e, m: IInterface; debug: boolean): integer;
 var
@@ -281,7 +347,7 @@ begin
 	itemsmaster := ElementByName(m, 'Items');
 
 	if Assigned(items) <> Assigned(itemsmaster) then begin
-		if debug then AddMessage(tag + ': ' + FullPath(e));
+		if debug then ShowDebugMessageFromElement(e, m, tag);
 		AddTag(tag);
 		exit;
 	end;
@@ -292,7 +358,7 @@ begin
 	// Items are sorted, so we don't need to compare by individual item
 	// SortKey combines all the items data
 	if SortKey(items, True) <> SortKey(itemsmaster, True) then begin
-		if debug then AddMessage(tag + ': ' + FullPath(e));
+		if debug then ShowDebugMessageFromElement(items, itemsmaster, tag);
 		AddTag(tag);
 	end;
 end;
@@ -305,51 +371,61 @@ var
 begin
 	tag := 'Actors.ACBS';
 
-	f := ElementByPath(e, 'ACBS');
-	fm := ElementByPath(m, 'ACBS');
+	// get ACBS element
+	f := ElementBySignature(e, 'ACBS');
+	fm := ElementBySignature(m, 'ACBS');
 
 	// If the Use Stats (0x2) template flag is set, don't bother
-	if IsFlagSet(ElementByName(f, 'Template Flags'), GetTemplateFlag('Use Stats'))
-	or IsFlagSet(ElementByName(fm, 'Template Flags'), GetTemplateFlag('Use Stats')) then
+	if HasFlag(ElementByName(f, 'Template Flags'), 'Use Stats') or HasFlag(ElementByName(fm, 'Template Flags'), 'Use Stats') then
 		exit;
 
-	if GetNativeValue(ElementByPath(e, 'ACBS\Flags')) <> GetNativeValue(ElementByPath(m, 'ACBS\Flags')) then begin
+	if FlagValues(ElementByPath(e, 'ACBS\Flags')) <> FlagValues(ElementByPath(m, 'ACBS\Flags')) then begin
+		if debug then ShowDebugMessageFromString(e, m, 'ACBS\Flags', tag);
 		AddTag(tag);
 		exit;
 	end;
 
-	Validate(ElementByName(f, 'Fatigue'), ElementByName(fm, 'Fatigue'), tag, debug);
-	Validate(ElementByName(f, 'Level'), ElementByName(fm, 'Level'), tag, debug);
-	Validate(ElementByName(f, 'Calc min'), ElementByName(fm, 'Calc min'), tag, debug);
-	Validate(ElementByName(f, 'Calc max'), ElementByName(fm, 'Calc max'), tag, debug);
-	Validate(ElementByName(f, 'Speed Multiplier'), ElementByName(fm, 'Speed Multiplier'), tag, debug);
-	Validate(ElementByName(e, 'DATA\Base Health'), ElementByName(m, 'DATA\Base Health'), tag, debug);
+	// Validators
+	Evaluate(f, fm, 'Fatigue', tag, debug);
+	Evaluate(f, fm, 'Level', tag, debug);
+	Evaluate(f, fm, 'Calc min', tag, debug);
+	Evaluate(f, fm, 'Calc max', tag, debug);
+	Evaluate(f, fm, 'Speed Multiplier', tag, debug);
+	Evaluate(e, m, 'DATA\Base Health', tag, debug);
 
-	// If the Use AI Data (0x16) template if not set, validate ACBS\Barter gold
-	if not IsFlagSet(ElementByName(f, 'Template Flags'), GetTemplateFlag('Use AI Data'))
-	or not IsFlagSet(ElementByName(fm, 'Template Flags'), GetTemplateFlag('Use AI Data')) then
-		Validate(ElementByName(f, 'Barter gold'), ElementByName(fm, 'Barter gold'), tag, debug);
+	// If the Use AI Data (0x16) template is not set, validate ACBS\Barter gold
+	if not HasFlag(ElementByName(f, 'Template Flags'), 'Use AI Data') or not HasFlag(ElementByName(fm, 'Template Flags'), 'Use AI Data') then
+		Evaluate(f, fm, 'Barter gold', tag, debug);
 
 end;
 
 {==================================================================}
 // Actors.AIData
 function CheckActorsAIData(e, m: IInterface; debug: boolean): integer;
+var
+	a, am: IInterface;
 begin
 	tag := 'Actors.AIData';
-	Validate(ElementByPath(e, 'AIDT\Aggression'), ElementByPath(m, 'AIDT\Aggression'), tag, debug);
-	Validate(ElementByPath(e, 'AIDT\Confidence'), ElementByPath(m, 'AIDT\Confidence'), tag, debug);
-	Validate(ElementByPath(e, 'AIDT\Energy level'), ElementByPath(m, 'AIDT\Energy level'), tag, debug);
-	Validate(ElementByPath(e, 'AIDT\Responsibility'), ElementByPath(m, 'AIDT\Responsibility'), tag, debug);
+	
+	// get ACBS element
+	a := ElementBySignature(e, 'AIDT');
+	am := ElementBySignature(m, 'AIDT');
+	
+	// Validators
+	Evaluate(a, am, 'Aggression', tag, debug);
+	Evaluate(a, am, 'Confidence', tag, debug);
+	Evaluate(a, am, 'Energy level', tag, debug);
+	Evaluate(a, am, 'Responsibility', tag, debug);
 
 	// v1.3.3 - More flags
-	if GetNativeValue(ElementByPath(e, 'AIDT\Buys/Sells and Services')) <> GetNativeValue(ElementByPath(m, 'AIDT\Buys/Sells and Services')) then begin
+	if FlagValues(ElementByPath(a, 'Buys/Sells and Services')) <> FlagValues(ElementByPath(am, 'Buys/Sells and Services')) then begin
+		if debug then ShowDebugMessageFromString(a, am, 'Buys/Sells and Services', tag);
 		AddTag(tag);
 		exit;
 	end;
 
-	Validate(ElementByPath(e, 'AIDT\Teaches'), ElementByPath(m, 'AIDT\Teaches'), tag, debug);
-	Validate(ElementByPath(e, 'AIDT\Maximum training level'), ElementByPath(m, 'AIDT\Maximum training level'), tag, debug);
+	Evaluate(a, am, 'Teaches', tag, debug);
+	Evaluate(a, m, 'Maximum training level'), tag, debug);
 end;
 
 {==================================================================}
@@ -357,27 +433,29 @@ end;
 function CheckActorsAIPackages(e, m: IInterface; debug: boolean): integer;
 begin
 	tag := 'Actors.AIPackages';
-	Validate(ElementByName(e, 'Packages'), ElementByName(m, 'Packages'), tag, debug);
+	Evaluate(e, m, 'Packages', tag, debug);
 end;
 
 {==================================================================}
 // Actors.Skeleton
 function CheckActorsSkeleton(e, m: IInterface; debug: boolean): integer;
 var
-	Model, ModelMaster: IInterface;
+	model, modelm: IInterface;
 begin
 	tag := 'Actors.Skeleton';
 
-	Model := ElementByName(e, 'Model');
-	ModelMaster := ElementByName(m, 'Model');
+	// get model objects
+	model := ElementByName(e, 'Model');
+	modelm := ElementByName(m, 'Model');
 
 	// A fix that might cause problems... We'll see!
-	if not Assigned(Model) then
+	if not Assigned(model) then
 		exit;
 
-	Validate(ElementBySignature(Model, 'MODL'), ElementBySignature(ModelMaster, 'MODL'), tag, debug);
-	Validate(ElementBySignature(Model, 'MODB'), ElementBySignature(ModelMaster, 'MODB'), tag, debug);
-	Validate(ElementBySignature(Model, 'MODT'), ElementBySignature(ModelMaster, 'MODT'), tag, debug);
+	// Validators
+	Evaluate(model, modelm, 'MODL', tag, debug);
+	Evaluate(model, modelm, 'MODB', tag, debug);
+	Evaluate(model, modelm, 'MODT', tag, debug);
 end;
 
 {==================================================================}
@@ -389,25 +467,29 @@ var
 begin
 	tag := 'Actors.Stats';
 
+	// get record signature
 	sig := geev(e, 'Record Header\Signature');
 
+	// get data objects
 	d := ElementBySignature(e, 'DATA');
 	dm := ElementBySignature(m, 'DATA');
 
+	// validators
+	// creatures
 	if (sig = 'CREA') then begin
-
-		Validate(ElementByName(d, 'Health'), ElementByName(dm, 'Health'), tag, debug);
-		Validate(ElementByName(d, 'Combat Skill'), ElementByName(dm, 'Combat Skill'), tag, debug);
-		Validate(ElementByName(d, 'Magic Skill'), ElementByName(dm, 'Magic Skill'), tag, debug);
-		Validate(ElementByName(d, 'Stealth Skill'), ElementByName(dm, 'Stealth Skill'), tag, debug);
-		Validate(ElementByName(d, 'Attributes'), ElementByName(dm, 'Attributes'), tag, debug);
+		Evaluate(d, dm, 'Health', tag, debug);
+		Evaluate(d, dm, 'Combat Skill', tag, debug);
+		Evaluate(d, dm, 'Magic Skill', tag, debug);
+		Evaluate(d, dm, 'Stealth Skill', tag, debug);
+		Evaluate(d, dm, 'Attributes', tag, debug);
 	end;
 
+	// non-player characters
 	if (sig = 'NPC_') then begin
-		Validate(ElementByName(d, 'Base Health'), ElementByName(dm, 'Base Health'), tag, debug);
-		Validate(ElementByName(d, 'Attributes'), ElementByName(dm, 'Attributes'), tag, debug);
-		Validate(ElementByPath(e, 'DNAM\Skill Values'), ElementByName(m, 'DNAM\Skill Values'), tag, debug);
-		Validate(ElementByPath(e, 'DNAM\Skill Offsets'), ElementByName(m, 'DNAM\Skill Offsets'), tag, debug);
+		Evaluate(d, dm, 'Base Health', tag, debug);
+		Evaluate(d, dm, 'Attributes', tag, debug);
+		Evaluate(e, m, 'DNAM\Skill Values', tag, debug);
+		Evaluate(e, m, 'DNAM\Skill Offsets', tag, debug);
 	end;
 end;
 
@@ -416,11 +498,13 @@ end;
 function CheckNPCFaces(e, m: IInterface; debug: boolean): integer;
 begin
 	tag := 'NpcFaces';
-	Validate(ElementBySignature(e, 'HNAM'), ElementBySignature(m, 'HNAM'), tag, debug);
-	Validate(ElementBySignature(e, 'LNAM'), ElementBySignature(m, 'LNAM'), tag, debug);
-	Validate(ElementBySignature(e, 'ENAM'), ElementBySignature(m, 'ENAM'), tag, debug);
-	Validate(ElementBySignature(e, 'HCLR'), ElementBySignature(m, 'HCLR'), tag, debug);
-	Validate(ElementByName(e, 'FaceGen Data'), ElementByName(m, 'FaceGen Data'), tag, debug);
+	
+	// validators
+	Evaluate(e, m, 'HNAM', tag, debug);
+	Evaluate(e, m, 'LNAM', tag, debug);
+	Evaluate(e, m, 'ENAM', tag, debug);
+	Evaluate(e, m, 'HCLR', tag, debug);
+	Evaluate(e, m, 'FaceGen Data', tag, debug);
 end;
 
 {==================================================================}
@@ -431,16 +515,19 @@ end;
 function CheckRaceBody(e, m: IInterface; tag: string; debug: boolean): integer;
 begin
 	if (tag = 'Body-F') then
-		Validate(ElementByPath(e, 'Body Data\Female Body Data\Parts'), ElementByPath(m, 'Body Data\Female Body Data\Parts'), tag, debug);
+		Evaluate(e, m, 'Body Data\Female Body Data\Parts', tag, debug);
+	
 	if (tag = 'Body-M') then
-		Validate(ElementByPath(e, 'Body Data\Male Body Data\Parts'), ElementByPath(m, 'Body Data\Male Body Data\Parts'), tag, debug);
+		Evaluate(e, m, 'Body Data\Male Body Data\Parts', tag, debug);
+	
 	if (tag = 'Body-Size-F') then begin
-		Validate(ElementByPath(e, 'DATA\Female Height'), ElementByPath(m, 'DATA\Female Height'), tag, debug);
-		Validate(ElementByPath(e, 'DATA\Female Weight'), ElementByPath(m, 'DATA\Female Weight'), tag, debug);
+		Evaluate(e, m, 'DATA\Female Height', tag, debug);
+		Evaluate(e, m, 'DATA\Female Weight', tag, debug);
 	end;
+	
 	if (tag = 'Body-Size-M') then begin
-		Validate(ElementByPath(e, 'DATA\Male Height'), ElementByPath(m, 'DATA\Male Height'), tag, debug);
-		Validate(ElementByPath(e, 'DATA\Male Weight'), ElementByPath(m, 'DATA\Male Weight'), tag, debug);
+		Evaluate(e, m, 'DATA\Male Height', tag, debug);
+		Evaluate(e, m, 'DATA\Male Weight', tag, debug);
 	end;
 end;
 
@@ -453,27 +540,27 @@ function CheckRaceHead(e, m: IInterface; tag: string; debug: boolean): integer;
 begin
 
 	if (tag = 'R.Head') then begin
-		Validate(ElementByIP(e, 'Head Data\Male Head Data\Parts\[0]'), ElementByIP(m, 'Head Data\Male Head Data\Parts\[0]'), tag, debug);
-		Validate(ElementByIP(e, 'Head Data\Female Head Data\Parts\[0]'), ElementByIP(m, 'Head Data\Female Head Data\Parts\[0]'), tag, debug);
-		Validate(ElementByName(e, 'FaceGen Data'), ElementByName(m, 'FaceGen Data'), tag, debug);
+		Evaluate(e, m, 'Head Data\Male Head Data\Parts\[0]', tag, debug);
+		Evaluate(e, m, 'Head Data\Female Head Data\Parts\[0]', tag, debug);
+		Evaluate(e, m, 'FaceGen Data', tag, debug);
 	end;
 
 	if (tag = 'R.Ears') then begin
-		Validate(ElementByIP(e, 'Head Data\Male Head Data\Parts\[1]'), ElementByIP(m, 'Head Data\Male Head Data\Parts\[1]'), tag, debug);
-		Validate(ElementByIP(e, 'Head Data\Female Head Data\Parts\[1]'), ElementByIP(m, 'Head Data\Female Head Data\Parts\[1]'), tag, debug);
+		Evaluate(e, m, 'Head Data\Male Head Data\Parts\[1]', tag, debug);
+		Evaluate(e, m, 'Head Data\Female Head Data\Parts\[1]', tag, debug);
 	end;
 
 	if (tag = 'R.Mouth') then begin
-		Validate(ElementByIP(e, 'Head Data\Male Head Data\Parts\[2]'), ElementByIP(m, 'Head Data\Male Head Data\Parts\[2]'), tag, debug);
-		Validate(ElementByIP(e, 'Head Data\Female Head Data\Parts\[2]'), ElementByIP(m, 'Head Data\Female Head Data\Parts\[2]'), tag, debug);
+		Evaluate(e, m, 'Head Data\Male Head Data\Parts\[2]', tag, debug);
+		Evaluate(e, m, 'Head Data\Female Head Data\Parts\[2]', tag, debug);
 	end;
 
 	if (tag = 'R.Teeth') then begin
-		Validate(ElementByIP(e, 'Head Data\Male Head Data\Parts\[3]'), ElementByIP(m, 'Head Data\Male Head Data\Parts\[3]'), tag, debug);
-		Validate(ElementByIP(e, 'Head Data\Female Head Data\Parts\[3]'), ElementByIP(m, 'Head Data\Female Head Data\Parts\[3]'), tag, debug);
+		Evaluate(e, m, 'Head Data\Male Head Data\Parts\[3]', tag, debug);
+		Evaluate(e, m, 'Head Data\Female Head Data\Parts\[3]', tag, debug);
 		if IsFallout3(game) then begin
-			Validate(ElementByIP(e, 'Head Data\Male Head Data\Parts\[4]'), ElementByIP(m, 'Head Data\Male Head Data\Parts\[4]'), tag, debug);
-			Validate(ElementByIP(e, 'Head Data\Female Head Data\Parts\[4]'), ElementByIP(m, 'Head Data\Female Head Data\Parts\[4]'), tag, debug);
+			Evaluate(e, m, 'Head Data\Male Head Data\Parts\[4]', tag, debug);
+			Evaluate(e, m, 'Head Data\Female Head Data\Parts\[4]', tag, debug);
 		end;
 	end;
 
@@ -486,12 +573,13 @@ begin
 	tag := 'C.Climate';
 
 	// If the Behave like exterior (0x128) flag is set in one record but not in the other, suggest tag
-	if IsFlagSet(ElementByPath(e, 'DATA'), 128) <> IsFlagSet(ElementByPath(m, 'DATA'), 128) then begin
+	if HasFlag(ElementBySignature(e, 'DATA'), 'Behave like exterior') <> HasFlag(ElementBySignature(m, 'DATA'), 'Behave like exterior') then begin
+		if debug then ShowDebugMessageFromString(e, m, 'DATA', tag);
 		AddTag(tag);
 		exit;
 	end;
 
-	Validate(ElementBySignature(e, 'XCCM'), ElementBySignature(m, 'XCCM'), tag, debug);
+	Evaluate(e, m , 'XCCM', tag, debug);
 end;
 
 {==================================================================}
@@ -505,7 +593,7 @@ begin
 	f  := ElementByPath(e, 'Record Header\Record Flags');
 	fm := ElementByPath(m, 'Record Header\Record Flags');
 
-	if GetNativeValue(f) <> GetNativeValue(fm) then
+	if FlagValues(f) <> FlagValues(fm) then
 		AddTag(tag);
 end;
 
@@ -516,13 +604,14 @@ begin
 	tag := 'C.Water';
 
 	// If the Has water (0x2) flag is set in one record but not in the other, suggest tag and exit
-	if IsFlagSet(ElementByPath(e, 'DATA'), 2) <> IsFlagSet(ElementByPath(m, 'DATA'), 2) then begin
+	if HasFlag(ElementBySignature(e, 'DATA'), 'Has water') <> HasFlag(ElementBySignature(m, 'DATA'), 'Has water') then begin
+		if debug then ShowDebugMessageFromString(e, m, 'DATA', tag);
 		AddTag(tag);
 		exit;
 	end;
 
-	Validate(ElementBySignature(e, 'XCLW'), ElementBySignature(m, 'XCLW'), tag, debug);
-	Validate(ElementBySignature(e, 'XCWT'), ElementBySignature(m, 'XCWT'), tag, debug);
+	Evaluate(e, m, 'XCLW', tag, debug);
+	Evaluate(e, m, 'XCWT', tag, debug);
 end;
 
 {==================================================================}
@@ -541,15 +630,16 @@ begin
 		exit;
 	end;
 	
-	Validate(ElementByPath(d, 'DEST\Health'), ElementByPath(dm, 'DEST\Health'), tag, debug);
-	Validate(ElementByPath(d, 'DEST\Count'), ElementByPath(dm, 'DEST\Count'), tag, debug);
+	Evaluate(d, dm, 'DEST\Health', tag, debug);
+	Evaluate(d, dm, 'DEST\Count', tag, debug);
 
-	if GetNativeValue(ElementByPath(d, 'DEST\Flags')) <> GetNativeValue(ElementByPath(dm, 'DEST\Flags')) then begin
+	if FlagValues(ElementByPath(d, 'DEST\Flags')) <> FlagValues(ElementByPath(dm, 'DEST\Flags')) then begin
+		if debug then ShowDebugMessageFromString(d, dm, 'DEST\Flags', tag);
 		AddTag(tag);
 		exit;
 	end;
 
-	Validate(ElementByPath(d, 'Stages'), ElementByPath(dm, 'Stages'), tag, debug);
+	Evaluate(d, dm, 'Stages', tag, debug);
 end;
 
 {==================================================================}
@@ -567,18 +657,16 @@ begin
 	or (sig = 'CLAS')	or (sig = 'INGR')	or (sig = 'KEYM')
 	or (sig = 'LIGH')	or (sig = 'LSCR') or (sig = 'LTEX')
 	or (sig = 'MGEF') or (sig = 'MISC')	or (sig = 'REGN')
-	or (sig = 'TREE')	or (sig = 'WEAP') then begin
-		Validate(ElementByName(e, 'Icon'), ElementByName(m, 'Icon'), tag, debug);
-	end;
+	or (sig = 'TREE')	or (sig = 'WEAP') then
+		Evaluate(e, m, 'Icon', tag, debug);
 
 	if (sig = 'ACTI')	or (sig = 'ALCH')	or (sig = 'AMMO')
 	or (sig = 'BOOK')	or (sig = 'DOOR')	or (sig = 'FLOR')
 	or (sig = 'FURN')	or (sig = 'GRAS')	or (sig = 'INGR')
 	or (sig = 'KEYM')	or (sig = 'LIGH')	or (sig = 'MGEF')
 	or (sig = 'MISC')	or (sig = 'STAT')	or (sig = 'TREE')
-	or (sig = 'WEAP') then begin
-		Validate(ElementByName(e, 'Model'), ElementByName(m, 'Model'), tag, debug);
-	end;
+	or (sig = 'WEAP') then
+		Evaluate(e, m, 'Model', tag, debug);
 
 	if (sig ='CREA') then begin
 		Validate(ElementBySignature(e, 'NIFZ'), ElementBySignature(m, 'NIFZ'), tag, debug);
@@ -587,28 +675,43 @@ begin
 
 	// 1.2 improved efsh validation
 	if (sig = 'EFSH') then begin
-		if GetNativeValue(ElementByPath(e, 'Record Header\Record Flags')) <> GetNativeValue(ElementByPath(m, 'Record Header\Record Flags')) then begin
+		if FlagValues(ElementByPath(e, 'Record Header\Record Flags')) <> FlagValues(ElementByPath(m, 'Record Header\Record Flags')) then begin
+			if debug then ShowDebugMessageFromString(e, m, 'Record Header\Record Flags', tag);
 			AddTag(tag);
 			exit;
 		end;
-		Validate(ElementBySignature(e, 'EDID'), ElementBySignature(m, 'EDID'), tag, debug);
-		Validate(ElementBySignature(e, 'ICON'), ElementBySignature(m, 'ICON'), tag, debug);
-		Validate(ElementBySignature(e, 'ICO2'), ElementBySignature(m, 'ICO2'), tag, debug);
-		Validate(ElementBySignature(e, 'NAM7'), ElementBySignature(m, 'NAM7'), tag, debug);
-		Validate(ElementBySignature(e, 'DATA'), ElementBySignature(m, 'DATA'), tag, debug);
+		Evaluate(e, m, 'ICON', tag, debug);
+		Evaluate(e, m, 'ICO2', tag, debug);
+		Evaluate(e, m, 'NAM7', tag, debug);
+		if IsSkyrim(game) then begin
+			Evaluate(e, m, 'NAM8', tag, debug);
+			Evaluate(e, m, 'NAM9', tag, debug);
+		end;
+		Evaluate(e, m, 'DATA', tag, debug);
 	end;
 
 	if (sig = 'ARMO') then begin
-		Validate(ElementBySignature(e, 'ICON'), ElementBySignature(m, 'ICON'), tag, debug);
-		Validate(ElementBySignature(e, 'ICO2'), ElementBySignature(m, 'ICO2'), tag, debug);
-		Validate(ElementByPath(e, 'Male biped model\MODL'), ElementByPath(m, 'Male biped model\MODL'), tag, debug);
-		Validate(ElementByPath(e, 'Male biped model\MODT'), ElementByPath(m, 'Male biped model\MODT'), tag, debug);
-		Validate(ElementByPath(e, 'Male world model\MOD2'), ElementByPath(m, 'Male world model\MOD2'), tag, debug);
-		Validate(ElementByPath(e, 'Female biped model\MOD3'), ElementByPath(m, 'Female biped model\MOD3'), tag, debug);
-		Validate(ElementByPath(e, 'Female biped model\MO3T'), ElementByPath(m, 'Female biped model\MO3T'), tag, debug);
-		Validate(ElementByPath(e, 'Female world model\MOD4'), ElementByPath(m, 'Female world model\MOD4'), tag, debug);
-		if GetNativeValue(ElementByPath(e, 'BMDT\Biped Flags')) <> GetNativeValue(ElementByPath(m, 'BMDT\Biped Flags')) then
+		Evaluate(e, m, 'ICON', tag, debug);
+		Evaluate(e, m, 'ICO2', tag, debug);
+		Evaluate(e, m, 'Male biped model\MODL', tag, debug);
+		Evaluate(e, m, 'Male biped model\MODT', tag, debug);
+		Evaluate(e, m, 'Male world model\MOD2', tag, debug);
+		Evaluate(e, m, 'Female biped model\MOD3', tag, debug);
+		Evaluate(e, m, 'Female biped model\MO3T', tag, debug);
+		Evaluate(e, m, 'Female world model\MOD4', tag, debug);
+		if FlagValues(ElementByPath(e, 'BMDT\Biped Flags')) <> FlagValues(ElementByPath(m, 'BMDT\Biped Flags')) then
+			if debug then ShowDebugMessageFromString(e, m, 'BMDT\Biped Flags', tag);
 			AddTag(tag);
+	end;
+end;
+
+{==================================================================}
+// Debug Message
+function ShowDebugMessage(x, y: IInterface; p, t: string): integer;
+begin
+	if debug then begin
+		AddMessage(t + ': ' + FullPath(x));
+		AddMessage(t + ': ' + FullPath(y));
 	end;
 end;
 
@@ -617,8 +720,8 @@ end;
 function CheckSpellStats(e, m: IInterface; debug: boolean): integer;
 begin
 	tag := 'SpellStats';
-	Validate(ElementBySignature(e, 'FULL'), ElementBySignature(m, 'FULL'), tag, debug);
-	Validate(ElementBySignature(e, 'SPIT'), ElementBySignature(m, 'SPIT'), tag, debug);
+	Evaluate(e, m, 'FULL', tag, debug);
+	Evaluate(e, m, 'SPIT', tag, debug);
 end;
 
 {==================================================================}
@@ -630,44 +733,47 @@ begin
 	tag := 'Sound';
 	sig := geev(e, 'Record Header\Signature');
 
-	if (sig = 'ACTI') then begin
-		Validate(ElementBySignature(e, 'SNAM'), ElementBySignature(m, 'SNAM'), tag, debug);
-		Validate(ElementBySignature(e, 'VNAM'), ElementBySignature(m, 'VNAM'), tag, debug);
-	end;
+	// Activators, Containers, Doors, and Lights
+	if (sig = 'ACTI') or (sig = 'CONT') or (sig = 'DOOR')
+	or (sig = 'LIGH') then
+		Evaluate(e, m, 'SNAM', tag, debug);
+	
+	// Activators
+	if (sig = 'ACTI') then
+		Evaluate(e, m, 'VNAM', tag, debug);
 
+	// Containers
 	if (sig = 'CONT') then begin
-		Validate(ElementBySignature(e, 'SNAM'), ElementBySignature(m, 'SNAM'), tag, debug);
-		Validate(ElementBySignature(e, 'QNAM'), ElementBySignature(m, 'QNAM'), tag, debug);
+		Evaluate(e, m, 'QNAM', tag, debug);
 		if not IsFallout3(game) then
-			Validate(ElementBySignature(e, 'RNAM'), ElementBySignature(m, 'RNAM'), tag, debug); // fo3 doesn't have this element
+			Evaluate(e, m, 'RNAM', tag, debug); // fo3 doesn't have this element
 	end;
 
+	// Creatures
 	if (sig = 'CREA') then begin
-		Validate(ElementBySignature(e, 'WNAM'), ElementBySignature(m, 'WNAM'), tag, debug);
-		Validate(ElementBySignature(e, 'CSCR'), ElementBySignature(m, 'CSCR'), tag, debug);
-		Validate(ElementByName(e, 'Sound Types'), ElementByName(m, 'Sound Types'), tag, debug);
+		Evaluate(e, m, 'WNAM', tag, debug);
+		Evaluate(e, m, 'CSCR', tag, debug);
+		Evaluate(e, m, 'Sound Types', tag, debug);
 	end;
 
+	// Doors
 	if (sig = 'DOOR') then begin
-		Validate(ElementBySignature(e, 'SNAM'), ElementBySignature(m, 'SNAM'), tag, debug);
-		Validate(ElementBySignature(e, 'ANAM'), ElementBySignature(m, 'ANAM'), tag, debug);
-		Validate(ElementBySignature(e, 'BNAM'), ElementBySignature(m, 'BNAM'), tag, debug);
+		Evaluate(e, m, 'ANAM', tag, debug);
+		Evaluate(e, m, 'BNAM', tag, debug);
 	end;
-
-	if (sig = 'LIGH') then begin
-		Validate(ElementBySignature(e, 'SNAM'), ElementBySignature(m, 'SNAM'), tag, debug);
-	end;
-
+	
+	// Magic Effects
 	if (sig = 'MGEF') then begin
-		Validate(ElementByPath(e, 'DATA\Effect sound'), ElementByPath(m, 'DATA\Effect sound'), tag, debug);
-		Validate(ElementByPath(e, 'DATA\Bolt sound'), ElementByPath(m, 'DATA\Bolt sound'), tag, debug);
-		Validate(ElementByPath(e, 'DATA\Hit sound'), ElementByPath(m, 'DATA\Hit sound'), tag, debug);
-		Validate(ElementByPath(e, 'DATA\Area sound'), ElementByPath(m, 'DATA\Area sound'), tag, debug);
+		Evaluate(e, m, 'DATA\Effect sound', tag, debug);
+		Evaluate(e, m, 'DATA\Bolt sound', tag, debug);
+		Evaluate(e, m, 'DATA\Hit sound', tag, debug);
+		Evaluate(e, m, 'DATA\Area sound', tag, debug);
 	end;
 
-	if (sig = 'WTHR') then begin
-		Validate(ElementByName(e, 'Sounds'), ElementByName(m, 'Sounds'), tag, debug);
-	end;
+	// Weather
+	if (sig = 'WTHR') then
+		Evaluate(e, m, 'Sounds', tag, debug);
+
 end;
 
 {==================================================================}
@@ -680,23 +786,20 @@ begin
 	tag := 'Stats';
 	sig := geev(e, 'Record Header\Signature');
 
+	// Ingestibles, Ammunition, Armor, Books, Keys, Lights, Misc. Items, Weapons
+	if (sig = 'ALCH')	or (sig = 'AMMO')	or (sig = 'ARMO')
+	or (sig = 'BOOK')	or (sig = 'KEYM') or (sig = 'LIGH')
+	or (sig = 'MISC')	or (sig = 'WEAP')	then
+		Evaluate(e, m, 'DATA', tag, debug);
+
 	// Ammunition
-	if (sig = 'AMMO') then begin
-		Validate(ElementBySignature(e, 'DATA'), ElementBySignature(m, 'DATA'), tag, debug);
+	if (sig = 'AMMO') then
 		if not IsFallout3(game) then
-			Validate(ElementBySignature(e, 'DAT2'), ElementBySignature(m, 'DAT2'), tag, debug); // fo3 doesn't have this element
-	end;
+			Evaluate(e, m, 'DAT2', tag, debug); // fo3 doesn't have this element
 
 	// Armor
-	if (sig = 'ARMO') then begin
-		Validate(ElementBySignature(e, 'DATA'), ElementBySignature(m, 'DATA'), tag, debug);
-		Validate(ElementBySignature(e, 'DNAM'), ElementBySignature(m, 'DNAM'), tag, debug);
-	end;
-
-	// Ingestibles, Books, Keys, Lights, Misc. Items, Weapons
-	if (sig = 'ALCH')	or (sig = 'BOOK')	or (sig = 'KEYM')
-	or (sig = 'LIGH')	or (sig = 'MISC')	or (sig = 'WEAP')	then
-		Validate(ElementBySignature(e, 'DATA'), ElementBySignature(m, 'DATA'), tag, debug);
+	if (sig = 'ARMO') then
+		Evaluate(e, m, 'DNAM', tag, debug);
 end;
 
 {==================================================================}
@@ -704,15 +807,46 @@ end;
 function Initialize: integer;
 var
 	tmplLoaded: string;
+  caName: array [0..6] of string;
 begin
 	optionSelected := MessageDlg('Do you want to write any found tags to the file header?', mtConfirmation, [mbYes, mbNo, mbAbort], 0);
 	if optionSelected = mrAbort then
 		exit;
-	
-	slTags := TStringList.Create; // list of tags
-	slTags.Delimiter := ','; // separated by comma
+		
+  // Conflict names and their background colors when viewed in xEdit
 
+  // conflict status not initialized
+  caName[caUnknown]          := 'Unknown';
+
+  // only 1 elements in comparison, usually a master record without overrides (white)
+  caName[caOnlyOne]          := 'OnlyOne';
+
+  // same data, identical to master ITM (green)
+  caName[caNoConflict]       := 'NoConflict';
+
+  // data differs, but the changes don't affect the game so treated as ITM too (yellow)
+  caName[caConflictBenign]   := 'ConflictBenign';
+
+  // different data, basically what mods do (yellow)
+  caName[caOverride]         := 'Override';
+
+  // changed data is changed by later loading mods (red)
+  caName[caConflict]         := 'Conflict';
+
+  // changed critical game data is changed by later loading mods (fuchsia)
+  caName[caConflictCritical] := 'ConflictCritical';
+	
+	// list of tags
+	slTags := TStringList.Create;
+	slTags.Delimiter := ','; // separated by comma
+	
+	// list of master files
+	slMasters := TStringList.Create;
+
+	// what game is loaded
 	game := GetFileName(FileByLoadOrder(00));
+	
+	// reusable strings
 	tmplLoaded := 'Using record structure for ';
 
 	AddMessage(#13#10 + '-------------------------------------------------------------------------------');
@@ -727,28 +861,29 @@ end;
 {Process}
 function Process(e: IInterface): integer;
 var
-	m: IInterface; // master record
-	sig: string;
+	o: IInterface; // master record
+	sig, fm: string;
+	i: integer;
 begin
-	if optionSelected = mrAbort then
+	// exit if the user aborted, or the record is identical to master
+	if (optionSelected = mrAbort)
+	or (ConflictAllForMainRecord(e) < caOverride) then
 		exit;
 	
 	fi := GetFile(e);
 	fn := GetFileName(fi);
 
 	// get master record
-	m := Master(e);
-
-	// no master - nothing to detect
-	if not Assigned(m) then
+	o := Master(e);
+	if not Assigned(o) then
 		exit;
-
+	
 	// if record overrides several masters, then get the last one
-	if OverrideCount(m) > 1 then
-		m := OverrideByIndex(m, OverrideCount(m) - 2);
+	if OverrideCount(o) > 1 then
+		o := OverrideByIndex(o, OverrideCount(o) - 2);
 
 	// v1.3.4 Stop processing deleted records to avoid errors
-	if GetIsDeleted(e) or GetIsDeleted(m) then
+	if GetIsDeleted(e) or GetIsDeleted(o) then
 		exit;
 
 	sig := geev(e, 'Record Header\Signature');
@@ -767,54 +902,53 @@ begin
 		//---------------------------------------------------------------------------
 		{C.Acoustic}
 		if (sig = 'CELL') then
-			Result := Validate(ElementBySignature(e, 'XCAS'), ElementBySignature(m,  'XCAS'), 'C.Acoustic', false);
+			Result := Evaluate(e, o, 'XCAS', 'C.Acoustic', false);
 		{C.Climate}
 		if (sig = 'CELL') then
-			Result := CheckCellClimate(e, m, false);
+			Result := CheckCellClimate(e, o, false);
 		{C.Encounter}
 		if (sig = 'CELL') then
-			Result := Validate(ElementBySignature(e, 'XEZN'), ElementBySignature(m,  'XEZN'), 'C.Encounter', false);
+			Result := Evaluate(e, o, 'XEZN', 'C.Encounter', false);
 		{C.ImageSpace}
 		if (sig = 'CELL') then
-			Result := Validate(ElementBySignature(e, 'XCIM'), ElementBySignature(m,  'XCIM'), 'C.ImageSpace', false);
+			Result := Evaluate(e, o, 'XCIM', 'C.ImageSpace', false);
 		{C.Light}
 		if (sig = 'CELL') then
-			Result := Validate(ElementBySignature(e, 'XCLL'), ElementBySignature(m,  'XCLL'), 'C.Light', false);
+			Result := Evaluate(e, o, 'XCLL', 'C.Light', false);
 		{C.Music}
 		if (sig = 'CELL') then
-			Result := Validate(ElementBySignature(e, 'XCMO'), ElementBySignature(e, 'XCMO'), 'C.Music', false);
+			Result := Evaluate(e, o, 'XCMO', 'C.Music', false); // 1.3.7 - was broken
 		{C.Name}
 		if (sig = 'CELL') then
-			Result := Validate(ElementBySignature(e, 'FULL'), ElementBySignature(e, 'FULL'), 'C.Name', false);
+			Result := Evaluate(e, o, 'FULL', 'C.Name', false); // 1.3.7 - was broken
 		{C.Owner}
 		if (sig = 'CELL') then
-			Result := Validate(ElementByName(e, 'Ownership'), ElementByName(m, 'Ownership'), 'C.Owner', false);
+			Result := Evaluate(e, o, 'Ownership', 'C.Owner', false);
 		{C.RecordFlags}
 		if (sig = 'CELL') then
-			Result := CheckCellRecordFlags(e, m, false);
+			Result := CheckCellRecordFlags(e, o, false);
 		{C.Water}
 		if (sig = 'CELL') then
-			Result := CheckCellWater(e, m, false);
+			Result := CheckCellWater(e, o, false);
 
 		//Leveled List Record Types
 		//---------------------------------------------------------------------------
 		{Delev/Relev}
 		if (sig = 'LVLI') or (sig = 'LVLC') or (sig = 'LVLN') or (sig = 'LVSP') then
-			Result := CheckDelevRelev(e, m, false);
+			Result := CheckDelevRelev(e, o, false);
 
 		//Actor and Container Record Types
 		//---------------------------------------------------------------------------
 		{Invent}
 		if (sig = 'CONT') then
-			Result := CheckInvent(e, m, false);
+			Result := CheckInvent(e, o, false);
 
 		{Invent - special handling for CREA and NPC_ record types}
 		if (sig = 'NPC_') or (sig = 'CREA') then begin
 			// If the Use Inventory (0x256) template flag is set, skip record to handle inheritance
-			if IsFlagSet(ElementByPath(e, 'ACBS\Template Flags'), GetTemplateFlag('Use Inventory'))
-			or IsFlagSet(ElementByPath(m, 'ACBS\Template Flags'), GetTemplateFlag('Use Inventory')) then
+			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Inventory')
+			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Inventory') then
 				exit;
-
 		end;
 
 		//Various Record Types
@@ -827,40 +961,40 @@ begin
 		or (sig = 'LSCR') or (sig = 'LTEX') or (sig = 'MGEF')
 		or (sig = 'MISC') or (sig = 'REGN') or (sig = 'STAT')
 		or (sig = 'TREE') or (sig = 'WEAP') then
-			Result := CheckGraphics(e, m, false);
+			Result := CheckGraphics(e, o, false);
 
 		{Names}
 		if (sig <> 'CELL') and (sig <> 'REFR') and (sig <> 'ACHR') and (sig <> 'NAVM') and (sig <> 'CREA') and (sig <> 'NPC_') then
-			Result := Validate(ElementBySignature(e, 'FULL'), ElementBySignature(m, 'FULL'), 'Names', false);
+			Result := Evaluate(e, o, 'FULL', 'Names', false);
 
 		{Names - special handling for CREA and NPC_ record types}
 		if (sig = 'CREA') or (sig = 'NPC_') then begin
 			// If the Use Base Data (0x128) template flag is set, skip record to handle inheritance
-			if IsFlagSet(ElementByPath(e, 'ACBS\Template Flags'), GetTemplateFlag('Use Base Data'))
-			or IsFlagSet(ElementByPath(m, 'ACBS\Template Flags'), GetTemplateFlag('Use Base Data')) then
+			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Base Data')
+			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Base Data') then
 				exit;
-			Result := Validate(ElementBySignature(e, 'FULL'), ElementBySignature(m, 'FULL'), 'Names', false);
+			Result := Evaluate(e, o, 'FULL', 'Names', false);
 		end;
 
 		{Sound}
 		if (sig = 'ACTI') or (sig = 'CONT') or (sig = 'DOOR')
 		or (sig = 'LIGH') or (sig = 'MGEF') or (sig = 'WTHR') then
-			Result := CheckSound(e, m, false);
+			Result := CheckSound(e, o, false);
 
 		{Sound - special handling for CREA record type}
 		if (sig = 'CREA') then begin
 			// If the Use Model/Animation (0x64) template flag is set, skip record to handle inheritance
-			if IsFlagSet(ElementByPath(e, 'ACBS\Template Flags'), GetTemplateFlag('Use Model/Animation'))
-			or IsFlagSet(ElementByPath(m, 'ACBS\Template Flags'), GetTemplateFlag('Use Model/Animation')) then
+			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Model/Animation')
+			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Model/Animation') then
 				exit;
-			Result := CheckSound(e, m, false);
+			Result := CheckSound(e, o, false);
 		end;
 
 		{Stats}
 		if (sig = 'ALCH') or (sig = 'AMMO') or (sig = 'ARMO')
 		or (sig = 'BOOK') or (sig = 'KEYM') or (sig = 'LIGH')
 		or (sig = 'MISC') or (sig = 'WEAP') then
-			Result := CheckStats(e, m, false);
+			Result := CheckStats(e, o, false);
 	end;
 
 	//---------------------------------------------------------------------------
@@ -875,167 +1009,167 @@ begin
 		{Actors.ACBS}
 		if (sig = 'NPC_') or (sig = 'CREA') then begin
 			// v1.3.3 flag checks are implemented in the function
-			Result := CheckActorsACBS(e, m, false);
+			Result := CheckActorsACBS(e, o, false);
 		end;
 
 		{Actors.AIData}
 		if (sig = 'NPC_') or (sig = 'CREA') then begin
 			// If the Use AI Data (0x16) template flag is set, skip record to handle inheritance
-			if IsFlagSet(ElementByPath(e, 'ACBS\Template Flags'), GetTemplateFlag('Use AI Data'))
-			or IsFlagSet(ElementByPath(m, 'ACBS\Template Flags'), GetTemplateFlag('Use AI Data')) then
+			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use AI Data')
+			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use AI Data') then
 				exit;
-			Result := CheckActorsAIData(e, m, false);
+			Result := CheckActorsAIData(e, o, false);
 		end;
 
 		{Actors.AIPackages}
 		if (sig = 'NPC_') or (sig = 'CREA') then begin
 			// If the Use AI Packages (0x32) template flag is set, skip record to handle inheritance
-			if IsFlagSet(ElementByPath(e, 'ACBS\Template Flags'), GetTemplateFlag('Use AI Packages'))
-			or IsFlagSet(ElementByPath(m, 'ACBS\Template Flags'), GetTemplateFlag('Use AI Packages')) then
+			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use AI Packages')
+			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use AI Packages') then
 				exit;
-			Result := CheckActorsAIPackages(e, m, false);
+			Result := CheckActorsAIPackages(e, o, false);
 		end;
 
 		{Actors.Anims}
 		if (sig = 'CREA') then begin
 			// If the Use Model/Animation (0x64) template flag is set, skip record to handle inheritance
-			if IsFlagSet(ElementByPath(e, 'ACBS\Template Flags'), GetTemplateFlag('Use Model/Animation'))
-			or IsFlagSet(ElementByPath(m, 'ACBS\Template Flags'), GetTemplateFlag('Use Model/Animation')) then
+			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Model/Animation')
+			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Model/Animation') then
 				exit;
-			Result := Validate(ElementBySignature(e, 'KFFZ'), ElementBySignature(m, 'KFFZ'), 'Actors.Anims', false);
+			Result := Evaluate(e, o, 'KFFZ', 'Actors.Anims', false);
 		end;
 
 		{Actors.CombatStyle}
 		if (sig = 'NPC_') or (sig = 'CREA') then begin
 			// If the Use Traits (0x1) template flag is set, skip record to handle inheritance
-			if IsFlagSet(ElementByPath(e, 'ACBS\Template Flags'), GetTemplateFlag('Use Traits'))
-			or IsFlagSet(ElementByPath(m, 'ACBS\Template Flags'), GetTemplateFlag('Use Traits')) then
+			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Traits')
+			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Traits') then
 				exit;
-			Result := Validate(ElementBySignature(e, 'ZNAM'), ElementBySignature(m, 'ZNAM'), 'Actors.CombatStyle', false);
+			Result := Evaluate(e, o, 'ZNAM', 'Actors.CombatStyle', false);
 		end;
 
 		{Actors.DeathItem}
 		if (sig = 'NPC_') or (sig = 'CREA') then begin
 			// If the Use Traits (0x1) template flag is set, skip record to handle inheritance
-			if IsFlagSet(ElementByPath(e, 'ACBS\Template Flags'), GetTemplateFlag('Use Traits'))
-			or IsFlagSet(ElementByPath(m, 'ACBS\Template Flags'), GetTemplateFlag('Use Traits')) then
+			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Traits')
+			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Traits') then
 				exit;
-			Result := Validate(ElementBySignature(e, 'INAM'), ElementBySignature(m, 'INAM'), 'Actors.DeathItem', false);
+			Result := Evaluate(e, o, 'INAM', 'Actors.DeathItem', false);
 		end;
 
 		{Actors.Skeleton}
 		if (sig = 'NPC_') or (sig = 'CREA') then begin
 			// If the Use Model/Animation (0x64) template flag is set, skip record to handle inheritance
-			if IsFlagSet(ElementByPath(e, 'ACBS\Template Flags'), GetTemplateFlag('Use Model/Animation'))
-			or IsFlagSet(ElementByPath(m, 'ACBS\Template Flags'), GetTemplateFlag('Use Model/Animation')) then
+			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Model/Animation')
+			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Model/Animation') then
 				exit;
-			Result := CheckActorsSkeleton(e, m, false);
+			Result := CheckActorsSkeleton(e, o, false);
 		end;
 
 		{Actors.Stats}
 		if (sig = 'NPC_') or (sig = 'CREA') then begin
 			// If the Use Stats (0x2) template flag is set, skip record to handle inheritance
-			if IsFlagSet(ElementByPath(e, 'ACBS\Template Flags'), GetTemplateFlag('Use Stats'))
-			or IsFlagSet(ElementByPath(m, 'ACBS\Template Flags'), GetTemplateFlag('Use Stats')) then
+			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Stats')
+			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Stats') then
 				exit;
-			Result := CheckActorsStats(e, m, false);
+			Result := CheckActorsStats(e, o, false);
 		end;
 
 		{Factions}
 		if (sig = 'NPC_') or (sig = 'CREA') then begin
 			// If the Use Factions (0x4) template flag is set, skip record to handle inheritance
-			if IsFlagSet(ElementByPath(e, 'ACBS\Template Flags'), GetTemplateFlag('Use Factions'))
-			or IsFlagSet(ElementByPath(m, 'ACBS\Template Flags'), GetTemplateFlag('Use Factions')) then
+			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Factions')
+			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Factions') then
 				exit;
-			Result := Validate(ElementByName(e, 'Factions'), ElementByName(m, 'Factions'), 'Factions', false);
+			Result := Evaluate(e, o, 'Factions', 'Factions', false);
 		end;
 
 		{NPC.Class}
 		if (sig = 'NPC_') then begin
 			// If the Use Traits (0x1) template flag is set, skip record to handle inheritance
-			if IsFlagSet(ElementByPath(e, 'ACBS\Template Flags'), GetTemplateFlag('Use Traits'))
-			or IsFlagSet(ElementByPath(m, 'ACBS\Template Flags'), GetTemplateFlag('Use Traits')) then
+			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Traits')
+			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Traits') then
 				exit;
-			Result := Validate(ElementBySignature(e, 'CNAM'), ElementBySignature(m, 'CNAM'), 'NPC.Class', false);
+			Result := Evaluate(e, o, 'CNAM', 'NPC.Class', false);
 		end;
 
 		{NPC.Race}
 		if (sig = 'NPC_') then begin
 			// If the Use Traits (0x1) template flag is set, skip record to handle inheritance
-			if IsFlagSet(ElementByPath(e, 'ACBS\Template Flags'), GetTemplateFlag('Use Traits'))
-			or IsFlagSet(ElementByPath(m, 'ACBS\Template Flags'), GetTemplateFlag('Use Traits')) then
+			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Traits')
+			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Traits') then
 				exit;
-			Result := Validate(ElementBySignature(e, 'RNAM'), ElementBySignature(m, 'RNAM'), 'NPC.Race', false);
+			Result := Evaluate(e, o, 'RNAM', 'NPC.Race', false);
 		end;
 
 		{NPCFaces}
 		if (sig = 'NPC_') then begin
 			// If the Use Model/Animation (0x64) template flag is set, skip record to handle inheritance
-			if IsFlagSet(ElementByPath(e, 'ACBS\Template Flags'), GetTemplateFlag('Use Model/Animation'))
-			or IsFlagSet(ElementByPath(m, 'ACBS\Template Flags'), GetTemplateFlag('Use Model/Animation')) then
+			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Model/Animation')
+			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Model/Animation') then
 				exit;
-			Result := CheckNPCFaces(e, m, false);
+			Result := CheckNPCFaces(e, o, false);
 		end;
 
 		//Faction Record Type
 		//---------------------------------------------------------------------------
 		{Relations}
 		if (sig = 'FACT') then
-			Result := Validate(ElementByName(e, 'Relations'), ElementByName(m, 'Relations'), 'Relations', false);
+			Result := Evaluate(e, o, 'Relations', 'Relations', false);
 
 		//Race Record Type
 		//---------------------------------------------------------------------------
 		{Body-F}
 		if (sig = 'RACE') then
-			Result := CheckRaceBody(e, m, 'Body-F', false);
+			Result := CheckRaceBody(e, o, 'Body-F', false);
 		{Body-M}
 		if (sig = 'RACE') then
-			Result := CheckRaceBody(e, m, 'Body-M', false);
+			Result := CheckRaceBody(e, o, 'Body-M', false);
 		{Body-Size-F}
 		if (sig = 'RACE') then
-			Result := CheckRaceBody(e, m, 'Body-Size-F', false);
+			Result := CheckRaceBody(e, o, 'Body-Size-F', false);
 		{Body-Size-M}
 		if (sig = 'RACE') then
-			Result := CheckRaceBody(e, m, 'Body-Size-M', false);
+			Result := CheckRaceBody(e, o, 'Body-Size-M', false);
 		{Eyes}
 		if (sig = 'RACE') then
-			Result := Validate(ElementBySignature(e, 'ENAM'), ElementBySignature(m, 'ENAM'), 'Eyes', false);
+			Result := Evaluate(e, o, 'ENAM', 'Eyes', false);
 		{Hair}
 		if (sig = 'RACE') then
-			Result := Validate(ElementBySignature(e, 'HNAM'), ElementBySignature(m, 'HNAM'), 'Hair', false);
+			Result := Evaluate(e, o, 'HNAM', 'Hair', false);
 		{R.Description}
 		if (sig = 'RACE') then
-			Result := Validate(ElementBySignature(e, 'DESC'), ElementBySignature(m, 'DESC'), 'R.Description', false);
+			Result := Evaluate(e, o, 'DESC', 'R.Description', false);
 		{R.Ears}
 		if (sig = 'RACE') then
-			Result := CheckRaceHead(e, m, 'R.Ears', false);
+			Result := CheckRaceHead(e, o, 'R.Ears', false);
 		{R.Head}
 		if (sig = 'RACE') then
-			Result := CheckRaceHead(e, m, 'R.Head', false);
+			Result := CheckRaceHead(e, o, 'R.Head', false);
 		{R.Mouth}
 		if (sig = 'RACE') then
-			Result := CheckRaceHead(e, m, 'R.Mouth', false);
+			Result := CheckRaceHead(e, o, 'R.Mouth', false);
 		{R.Relations}
 		if (sig = 'RACE') then
-			Result := Validate(ElementByName(e, 'Relations'), ElementByName(m, 'Relations'), 'R.Relations', false);
+			Result := Evaluate(e, o, 'Relations', 'R.Relations', false);
 		{R.Skills}
 		if (sig = 'RACE') then
-			Result := Validate(ElementByPath(e, 'DATA\Skill Boosts'), ElementByPath(m, 'DATA\Skill Boosts'), 'R.Skills', false);
+			Result := Evaluate(e, o, 'DATA\Skill Boosts', 'R.Skills', false);
 		{R.Teeth}
 		if (sig = 'RACE') then
-			Result := CheckRaceHead(e, m, 'R.Teeth', false);
+			Result := CheckRaceHead(e, o, 'R.Teeth', false);
 		{Voice-F}
 		if (sig = 'RACE') then
-			Result := Validate(ElementByPath(e, 'VTCK\Voice #1 (Female)'), ElementByPath(m, 'VTCK\Voice #1 (Female)'), 'Voice-F', false);
+			Result := Evaluate(e, o, 'VTCK\Voice #1 (Female)', 'Voice-F', false);
 		{Voice-M}
 		if (sig = 'RACE') then
-			Result := Validate(ElementByPath(e, 'VTCK\Voice #0 (Male)'), ElementByPath(m, 'VTCK\Voice #0 (Male)'), 'Voice-M', false);
+			Result := Evaluate(e, o, 'VTCK\Voice #0 (Male)', 'Voice-M', false);
 
 		//Spell (Actor Effect) Record Type
 		//---------------------------------------------------------------------------
 		{SpellStats}
 		if (sig = 'SPEL') then
-			Result := CheckSpellStats(e, m, false);
+			Result := CheckSpellStats(e, o, false);
 
 		//Various Record Types
 		//---------------------------------------------------------------------------
@@ -1045,15 +1179,15 @@ begin
 		or (sig = 'FURN') or (sig = 'IMOD') or (sig = 'KEYM')
 		or (sig = 'MISC') or (sig = 'MSTT') or (sig = 'PROJ')
 		or (sig = 'TACT') or (sig = 'TERM') or (sig = 'WEAP') then
-			Result := CheckDestructible(e, m, false);
+			Result := CheckDestructible(e, o, false);
 
 		{Destructible - special handling for CREA and NPC_ record types}
 		if (sig = 'CREA') or (sig = 'NPC_') then begin
 			// If the Use Model/Animation (0x64) template flag is set, skip record to handle inheritance
-			if IsFlagSet(ElementByPath(e, 'ACBS\Template Flags'), GetTemplateFlag('Use Model/Animation'))
-			or IsFlagSet(ElementByPath(m, 'ACBS\Template Flags'), GetTemplateFlag('Use Model/Animation')) then
+			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Model/Animation')
+			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Model/Animation') then
 				exit;
-			Result := CheckDestructible(e, m, false);
+			Result := CheckDestructible(e, o, false);
 		end;
 
 		{Scripts}
@@ -1062,15 +1196,15 @@ begin
 		or (sig = 'FURN') or (sig = 'INGR') or (sig = 'KEYM')
 		or (sig = 'LIGH') or (sig = 'LVLC') or (sig = 'MISC')
 		or (sig = 'QUST') or (sig = 'WEAP') then
-			Result := Validate(ElementBySignature(e, 'SCRI'), ElementBySignature(m, 'SCRI'), 'Scripts', false);
+			Result := Evaluate(e, o, 'SCRI', 'Scripts', false);
 
 		{Scripts - special handling for CREA and NPC_ record types}
 		if (sig = 'CREA') or (sig = 'NPC_') then begin
 			// If the Use Script (0x512) template flag is set, skip record to handle inheritance
-			if IsFlagSet(ElementByPath(e, 'ACBS\Template Flags'), GetTemplateFlag('Use Script'))
-			or IsFlagSet(ElementByPath(m, 'ACBS\Template Flags'), GetTemplateFlag('Use Script')) then
+			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Script')
+			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Script') then
 				exit;
-			Result := Validate(ElementBySignature(e, 'SCRI'), ElementBySignature(m, 'SCRI'), 'Scripts', false);
+			Result := Evaluate(e, o, 'SCRI', 'Scripts', false);
 		end;
 
 	end;
@@ -1083,7 +1217,7 @@ begin
 		//---------------------------------------------------------------------------
 		{WeaponMods}
 		if (sig = 'WEAP') then
-			Result := Validate(ElementByName(e, 'Weapon Mods'), ElementByName(m, 'Weapon Mods'), 'WeaponMods', false);
+			Result := Evaluate(e, o, 'Weapon Mods', 'WeaponMods', false);
 	end;
 
 	//---------------------------------------------------------------------------
@@ -1092,7 +1226,7 @@ begin
 	if IsSkyrim(game) then begin
 		{C.Location}
 		if (sig = 'CELL') then
-			Result := Validate(ElementBySignature(e, 'XLCN'), ElementBySignature(m,  'XLCN'), 'C.Location', false);
+			Result := Evaluate(e, o, 'XLCN', 'C.Location', false);
 	end;
 	
 end;
