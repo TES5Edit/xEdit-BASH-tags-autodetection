@@ -2,7 +2,7 @@
 	Purpose: Bash Tagger
 	Game: FO3/FNV/TESV
 	Author: fireundubh <fireundubh@gmail.com>
-	Version: 1.3.7 (based on "BASH tags autodetection.pas" v1.0)
+	Version: 1.3.8 (based on "BASH tags autodetection.pas" v1.0)
 
 	Description: This script detects up to 49 bash tags in FO3, FNV, and Skyrim plugins.
 		Tags automatically replace the Description in the File Header. Wrye Bash/Flash can
@@ -32,20 +32,6 @@ var
 
 {==================================================================}
 {Returns True if the string is uppercase and False if not}
-function IsIndexedPath(x: string): boolean;
-begin
-	Result := pos('[', x);
-end;
-
-{==================================================================}
-{Returns True if the string is uppercase and False if not}
-function IsPath(x: string): boolean;
-begin
-	Result := pos('\', x);
-end;
-
-{==================================================================}
-{Returns True if the string is uppercase and False if not}
 function IsUppercase(x: string): boolean;
 begin
 	Result := (x = Uppercase(x));
@@ -54,18 +40,23 @@ end;
 {==================================================================}
 // Universal ElementBy
 function GetElement(e: IInterface; x: string): IInterface;
+var
+	i: integer;
 begin
-	if IsIndexedPath(x) then
-		Result := ElementByIP(e, x);
+	if (pos('[', x) > 0) then i := 1
+	else if (pos('\', x) > 0) then i := 3
+	else if IsUppercase(x) then i := 2
+	else if not IsUpperCase(x) then i := 4
+	else i := 5;
 	
-	if IsUppercase(x) then
-		Result := ElementBySignature(e, x);
-
-	if IsPath(x) then
+	case i of
+		1 : Result := ElementByIP(e, x);
+		2 : Result := ElementBySignature(e, x);
+		3 : Result := ElementByPath(e, x);
+		4 : Result := ElementByName(e, x);
+	else
 		Result := ElementByPath(e, x);
-
-	if not IsUpperCase(x) then
-		Result := ElementByName(e, x);
+	end;
 end;
 
 {==================================================================}
@@ -120,6 +111,13 @@ begin
 end;
 
 {==================================================================}
+{Alias for GetEditValue}
+function gnv(x: IInterface): string;
+begin
+	Result := GetNativeValue(x);
+end;
+
+{==================================================================}
 {Check if the tag already exists}
 function TagExists(t: string): boolean;
 begin
@@ -151,28 +149,42 @@ begin
 	end;
 end;
 
-{==================================================================}
-{Returns True if the element has a any flags and False if not}
-function HasAnyFlag(x: IInterface): boolean;
-var
-	f: TStringList;
-begin
-	f := TStringList.Create;
-	f.Text := FlagValues(x);
-	Result := (f.Count <> 0);
-	f.Free;
-end;
+//{==================================================================}
+//{Returns True if the element has a any flags and False if not}
+//function HasAnyFlag(x: IInterface): boolean;
+//var
+//	f: TStringList;
+//begin
+//	f := TStringList.Create;
+//	f.Text := FlagValues(x);
+//	Result := (f.Count <> 0);
+//	f.Free;
+//end;
+
+//{==================================================================}
+//{Returns True if the element has a specific flag and False if not}
+//function HasFlag(x: IInterface; y: string): boolean;
+//var
+//	f: TStringList;
+//begin
+//	f := TStringList.Create;
+//	f.Text := FlagValues(x);
+//	Result := (f.IndexOf(y) <> -1);
+//	f.Free;
+//end;
 
 {==================================================================}
-{Returns True if the element has a specific flag and False if not}
-function HasFlag(x: IInterface; y: string): boolean;
+{Return True if specific flag is set and False if not}
+function IsFlagSet(f: IInterface; s: string): boolean;
 var
-	f: TStringList;
+	flags: TStringList;
+	i: integer;
 begin
-	f := TStringList.Create;
-	f.Text := FlagValues(x);
-	Result := (f.IndexOf(y) <> -1);
-	f.Free;
+	flags := TStringList.Create;
+	flags.DelimitedText := '"Use Traits=1", "Use Stats=2", "Use Factions=4", "Use Actor Effect List=8", "Use AI Data=16", "Use AI Packages=32", "Use Model/Animation=64", "Use Base Data=128", "Use Inventory=256", "Use Script=512", "Is Interior Cell=1", "Has water=2", "Behave like exterior=128", "ESM=1", "Deleted=32", "Dangerous=131072"';
+	i := StrToInt(flags.Values[s]);
+	flags.Free;
+	Result := (gnv(f) and i > 0);
 end;
 
 {==================================================================}
@@ -183,11 +195,10 @@ function Validate(x, y: IInterface; tag: string; debug: boolean): integer;
 var
 	i, j, k, l, m: integer;
 begin	
-	if (ConflictAllForElements(x, y, False, IsInjected(Master(y))) < caOverride) then
-		exit;
-	
-	{Exit if the first element doesn't exist}
-	if not Assigned(x) then
+	{Exit if the conflict isn't worth the effort}
+	if (ConflictAllForElements(x, y, false, IsInjected(Master(y))) = caUnknown)
+	or (ConflictAllForElements(x, y, false, IsInjected(Master(y))) = caConflict)
+	or (ConflictAllForElements(x, y, false, IsInjected(Master(y))) = caConflictCritical) then
 		exit;
 
 	{Exit if the tag already exists}
@@ -201,6 +212,9 @@ begin
 		AddTag(tag);
 		exit;
 	end;
+	
+	if not Assigned(x) then
+		exit;
 
 	{Suggest tag if the two elements are different}
 	if ElementCount(x) <> ElementCount(y) then begin
@@ -209,12 +223,14 @@ begin
 		AddTag(tag);
 		exit;
 	end;
+	
+	if gev(x) <> gev(y) then begin
+		AddTag(tag);
+		exit;
+	end;
 
 	{Iterate through elements, down five levels if needed, and suggest tags}
 	for i := 0 to ElementCount(x) - 1 do begin
-		// v1.3.5 Attempt to eliminate false positives
-		if not Assigned(ElementByIndex(x, i)) and not Assigned(ElementByIndex(y, i)) then
-				exit;
 		if ElementCount(ElementByIndex(x, i)) = 0 then begin
 			if gev(ElementByIndex(x, i)) <> gev(ElementByIndex(y, i)) then begin
 				if debug then AddMessage('[2] ' + tag + ': ' + FullPath(x));
@@ -296,9 +312,8 @@ begin
 		exit;
 
 	// get Leveled List Entries
-	entries := ElementByName(e, 'Leveled List Entries');
-	entriesmaster := ElementByName(m, 'Leveled List Entries');
-
+	entries := GetElement(e, 'Leveled List Entries');
+	entriesmaster := GetElement(m, 'Leveled List Entries');
 	if not Assigned(entries) or not Assigned(entriesmaster) then
 		exit;
 
@@ -312,13 +327,13 @@ begin
 		if Assigned(entm) then begin
 			Inc(matched);
 			// Relev check for changed level, count, extra data
-			coed := ElementBySignature(ent, 'COED');
-			coedm := ElementBySignature(entm, 'COED');
+			coed := GetElement(ent, 'COED');
+			coedm := GetElement(entm, 'COED');
 			if Assigned(coed) then s1 := SortKey(coed, True) else s1 := '';
 			if Assigned(coedm) then s2 := SortKey(coedm, True) else s2 := '';
-			if (genv(ent, 'LVLO\Level') <> genv(entm, 'LVLO\Level')) or
-				 (genv(ent, 'LVLO\Count') <> genv(entm, 'LVLO\Count')) or
-				 (s1 <> s2) then begin
+			if (genv(ent, 'LVLO\Level') <> genv(entm, 'LVLO\Level'))
+			or (genv(ent, 'LVLO\Count') <> genv(entm, 'LVLO\Count'))
+			or (s1 <> s2) then begin
 				if debug then AddMessage('Relev: ' + FullPath(e));
 				AddTag('Relev');
 			end;
@@ -327,7 +342,7 @@ begin
 
 	// if number of matched entries less than in master list
 	if matched < ElementCount(entriesmaster) then begin
-		if debug then AddMessage('Delev: ' + FullPath(e));
+		if debug then AddMessage('Delev: ' + FullPath(entries));
 		AddTag('Delev');
 	end;
 end;
@@ -343,8 +358,8 @@ begin
 	if TagExists(tag) then
 		exit;
 
-	items := ElementByName(e, 'Items');
-	itemsmaster := ElementByName(m, 'Items');
+	items := GetElement(e, 'Items');
+	itemsmaster := GetElement(m, 'Items');
 
 	if Assigned(items) <> Assigned(itemsmaster) then begin
 		if debug then ShowDebugMessageFromElement(e, m, tag);
@@ -367,22 +382,28 @@ end;
 // v1.3.3 - Actors.ACBS
 function CheckActorsACBS(e, m: IInterface; debug: boolean): integer;
 var
-	f, fm: IInterface;
+	f, fm, t, tm: IInterface;
 begin
 	tag := 'Actors.ACBS';
 
 	// get ACBS element
-	f := ElementBySignature(e, 'ACBS');
-	fm := ElementBySignature(m, 'ACBS');
-
+	f := GetElement(e, 'ACBS');
+	fm := GetElement(m, 'ACBS');
+	
+	t := GetElement(f, 'Template Flags');
+	tm := GetElement(fm, 'Template Flags');
+	
 	// If the Use Stats (0x2) template flag is set, don't bother
-	if HasFlag(ElementByName(f, 'Template Flags'), 'Use Stats') or HasFlag(ElementByName(fm, 'Template Flags'), 'Use Stats') then
+	if IsFlagSet(t, 'Use Stats') or IsFlagSet(tm, 'Use Stats') then
 		exit;
 
-	if FlagValues(ElementByPath(e, 'ACBS\Flags')) <> FlagValues(ElementByPath(m, 'ACBS\Flags')) then begin
-		if debug then ShowDebugMessageFromString(e, m, 'ACBS\Flags', tag);
-		AddTag(tag);
-		exit;
+	// If the Use Base Data flag is not set, then check Flags
+	if not IsFlagSet(t, 'Use Base Data') or not IsFlagSet(tm, 'Use Base Data') then begin
+		if gnv(GetElement(f, 'Flags')) <> gnv(GetElement(fm, 'Flags')) then begin
+			if debug then ShowDebugMessageFromString(e, m, 'ACBS\Flags', tag);
+			AddTag(tag);
+			exit;
+		end;
 	end;
 
 	// Validators
@@ -394,7 +415,7 @@ begin
 	Evaluate(e, m, 'DATA\Base Health', tag, debug);
 
 	// If the Use AI Data (0x16) template is not set, validate ACBS\Barter gold
-	if not HasFlag(ElementByName(f, 'Template Flags'), 'Use AI Data') or not HasFlag(ElementByName(fm, 'Template Flags'), 'Use AI Data') then
+	if not IsFlagSet(t, 'Use AI Data') or not IsFlagSet(tm, 'Use AI Data') then
 		Evaluate(f, fm, 'Barter gold', tag, debug);
 
 end;
@@ -408,8 +429,8 @@ begin
 	tag := 'Actors.AIData';
 	
 	// get ACBS element
-	a := ElementBySignature(e, 'AIDT');
-	am := ElementBySignature(m, 'AIDT');
+	a := GetElement(e, 'AIDT');
+	am := GetElement(m, 'AIDT');
 	
 	// Validators
 	Evaluate(a, am, 'Aggression', tag, debug);
@@ -418,14 +439,14 @@ begin
 	Evaluate(a, am, 'Responsibility', tag, debug);
 
 	// v1.3.3 - More flags
-	if FlagValues(ElementByPath(a, 'Buys/Sells and Services')) <> FlagValues(ElementByPath(am, 'Buys/Sells and Services')) then begin
+	if gnv(GetElement(a, 'Buys/Sells and Services')) <> gnv(GetElement(am, 'Buys/Sells and Services')) then begin
 		if debug then ShowDebugMessageFromString(a, am, 'Buys/Sells and Services', tag);
 		AddTag(tag);
 		exit;
 	end;
 
 	Evaluate(a, am, 'Teaches', tag, debug);
-	Evaluate(a, am, 'Maximum training level'), tag, debug);
+	Evaluate(a, am, 'Maximum training level', tag, debug);
 end;
 
 {==================================================================}
@@ -445,8 +466,8 @@ begin
 	tag := 'Actors.Skeleton';
 
 	// get model objects
-	model := ElementByName(e, 'Model');
-	modelm := ElementByName(m, 'Model');
+	model := GetElement(e, 'Model');
+	modelm := GetElement(m, 'Model');
 
 	// A fix that might cause problems... We'll see!
 	if not Assigned(model) then
@@ -468,11 +489,11 @@ begin
 	tag := 'Actors.Stats';
 
 	// get record signature
-	sig := geev(e, 'Record Header\Signature');
+	sig := Signature(e);
 
 	// get data objects
-	d := ElementBySignature(e, 'DATA');
-	dm := ElementBySignature(m, 'DATA');
+	d := GetElement(e, 'DATA');
+	dm := GetElement(m, 'DATA');
 
 	// validators
 	// creatures
@@ -490,6 +511,35 @@ begin
 		Evaluate(d, dm, 'Attributes', tag, debug);
 		Evaluate(e, m, 'DNAM\Skill Values', tag, debug);
 		Evaluate(e, m, 'DNAM\Skill Offsets', tag, debug);
+	end;
+end;
+
+{==================================================================}
+// Factions
+function CheckActorsFactions(e, m: IInterface; debug: boolean): integer;
+var
+	f, fm: IInterface;
+begin
+	tag := 'Factions';
+	
+	if TagExists(tag) then
+		exit;
+
+	f := GetElement(e, 'Factions');
+	fm := GetElement(m, 'Factions');
+
+	if Assigned(f) <> Assigned(fm) then begin
+		if debug then ShowDebugMessageFromElement(e, m, tag);
+		AddTag(tag);
+		exit;
+	end;
+
+	if not Assigned(f) then
+		exit;
+
+	if SortKey(f, True) <> SortKey(fm, True) then begin
+		if debug then ShowDebugMessageFromElement(f, fm, tag);
+		AddTag(tag);
 	end;
 end;
 
@@ -569,11 +619,16 @@ end;
 {==================================================================}
 // C.Climate
 function CheckCellClimate(e, m: IInterface; debug: boolean): integer;
+var
+	d, dm: IInterface;
 begin
 	tag := 'C.Climate';
 
 	// If the Behave like exterior (0x128) flag is set in one record but not in the other, suggest tag
-	if HasFlag(ElementBySignature(e, 'DATA'), 'Behave like exterior') <> HasFlag(ElementBySignature(m, 'DATA'), 'Behave like exterior') then begin
+	d := GetElement(e, 'DATA');
+	dm := GetElement(m, 'DATA');
+	
+	if IsFlagSet(d, 'Behave like exterior') <> IsFlagSet(dm, 'Behave like exterior') then begin
 		if debug then ShowDebugMessageFromString(e, m, 'DATA', tag);
 		AddTag(tag);
 		exit;
@@ -590,21 +645,26 @@ var
 begin
 	tag := 'C.RecordFlags';
 
-	f  := ElementByPath(e, 'Record Header\Record Flags');
-	fm := ElementByPath(m, 'Record Header\Record Flags');
+	f  := GetElement(e, 'Record Header\Record Flags');
+	fm := GetElement(m, 'Record Header\Record Flags');
 
-	if FlagValues(f) <> FlagValues(fm) then
+	if gnv(f) <> gnv(fm) then
 		AddTag(tag);
 end;
 
 {==================================================================}
 // C.Water
 function CheckCellWater(e, m: IInterface; debug: boolean): integer;
+var
+	d, dm: IInterface;
 begin
 	tag := 'C.Water';
 
 	// If the Has water (0x2) flag is set in one record but not in the other, suggest tag and exit
-	if HasFlag(ElementBySignature(e, 'DATA'), 'Has water') <> HasFlag(ElementBySignature(m, 'DATA'), 'Has water') then begin
+	d := GetElement(e, 'DATA');
+	dm := GetElement(m, 'DATA');
+	
+	if IsFlagSet(d, 'Has water') <> IsFlagSet(dm, 'Has water') then begin
 		if debug then ShowDebugMessageFromString(e, m, 'DATA', tag);
 		AddTag(tag);
 		exit;
@@ -618,7 +678,7 @@ end;
 // Destructible
 function CheckDestructible(e, m: IInterface; debug: boolean): integer;
 var
-	d, dm: IInterface;
+	d, dm, f, fm: IInterface;
 begin
 	tag := 'Destructible';
 
@@ -632,8 +692,11 @@ begin
 	
 	Evaluate(d, dm, 'DEST\Health', tag, debug);
 	Evaluate(d, dm, 'DEST\Count', tag, debug);
+	
+	f := GetElement(d, 'DEST\Flags');
+	fm := GetElement(dm, 'DEST\Flags');
 
-	if FlagValues(ElementByPath(d, 'DEST\Flags')) <> FlagValues(ElementByPath(dm, 'DEST\Flags')) then begin
+	if gnv(f) <> gnv(fm) then begin
 		if debug then ShowDebugMessageFromString(d, dm, 'DEST\Flags', tag);
 		AddTag(tag);
 		exit;
@@ -651,7 +714,7 @@ var
 	i: integer;
 begin
 	tag := 'Graphics';
-	sig := geev(e, 'Record Header\Signature');
+	sig := Signature(e);
 
 	if (sig = 'ALCH') or (sig = 'AMMO')	or (sig = 'BOOK')
 	or (sig = 'CLAS')	or (sig = 'INGR')	or (sig = 'KEYM')
@@ -668,14 +731,28 @@ begin
 	or (sig = 'WEAP') then
 		Evaluate(e, m, 'Model', tag, debug);
 
+	if (sig = 'ARMO') then begin
+		Evaluate(e, m, 'ICON', tag, debug);
+		Evaluate(e, m, 'ICO2', tag, debug);
+		Evaluate(e, m, 'Male biped model\MODL', tag, debug);
+		Evaluate(e, m, 'Male biped model\MODT', tag, debug);
+		Evaluate(e, m, 'Male world model\MOD2', tag, debug);
+		Evaluate(e, m, 'Female biped model\MOD3', tag, debug);
+		Evaluate(e, m, 'Female biped model\MO3T', tag, debug);
+		Evaluate(e, m, 'Female world model\MOD4', tag, debug);
+		if gnv(GetElement(e, 'BMDT\Biped Flags')) <> gnv(GetElement(m, 'BMDT\Biped Flags')) then
+			if debug then ShowDebugMessageFromString(e, m, 'BMDT\Biped Flags', tag);
+			AddTag(tag);
+	end;
+
 	if (sig ='CREA') then begin
-		Validate(ElementBySignature(e, 'NIFZ'), ElementBySignature(m, 'NIFZ'), tag, debug);
-		Validate(ElementBySignature(e, 'NIFT'), ElementBySignature(m, 'NIFT'), tag, debug);
+		Validate(GetElement(e, 'NIFZ'), GetElement(m, 'NIFZ'), tag, debug);
+		Validate(GetElement(e, 'NIFT'), GetElement(m, 'NIFT'), tag, debug);
 	end;
 
 	// 1.2 improved efsh validation
 	if (sig = 'EFSH') then begin
-		if FlagValues(ElementByPath(e, 'Record Header\Record Flags')) <> FlagValues(ElementByPath(m, 'Record Header\Record Flags')) then begin
+		if gnv(GetElement(e, 'Record Header\Record Flags')) <> gnv(GetElement(m, 'Record Header\Record Flags')) then begin
 			if debug then ShowDebugMessageFromString(e, m, 'Record Header\Record Flags', tag);
 			AddTag(tag);
 			exit;
@@ -690,29 +767,10 @@ begin
 		Evaluate(e, m, 'DATA', tag, debug);
 	end;
 
-	if (sig = 'ARMO') then begin
-		Evaluate(e, m, 'ICON', tag, debug);
-		Evaluate(e, m, 'ICO2', tag, debug);
-		Evaluate(e, m, 'Male biped model\MODL', tag, debug);
-		Evaluate(e, m, 'Male biped model\MODT', tag, debug);
-		Evaluate(e, m, 'Male world model\MOD2', tag, debug);
-		Evaluate(e, m, 'Female biped model\MOD3', tag, debug);
-		Evaluate(e, m, 'Female biped model\MO3T', tag, debug);
-		Evaluate(e, m, 'Female world model\MOD4', tag, debug);
-		if FlagValues(ElementByPath(e, 'BMDT\Biped Flags')) <> FlagValues(ElementByPath(m, 'BMDT\Biped Flags')) then
-			if debug then ShowDebugMessageFromString(e, m, 'BMDT\Biped Flags', tag);
-			AddTag(tag);
-	end;
-end;
-
-{==================================================================}
-// Debug Message
-function ShowDebugMessage(x, y: IInterface; p, t: string): integer;
-begin
-	if debug then begin
-		AddMessage(t + ': ' + FullPath(x));
-		AddMessage(t + ': ' + FullPath(y));
-	end;
+	// 1.3.8 - added static material
+	if (sig = 'STAT') then
+		Evaluate(e, m, 'DNAM\Material', tag, debug)
+	
 end;
 
 {==================================================================}
@@ -731,7 +789,7 @@ var
 	sig: string;
 begin
 	tag := 'Sound';
-	sig := geev(e, 'Record Header\Signature');
+	sig := Signature(e);
 
 	// Activators, Containers, Doors, and Lights
 	if (sig = 'ACTI') or (sig = 'CONT') or (sig = 'DOOR')
@@ -784,7 +842,9 @@ var
 	sig: string;
 begin
 	tag := 'Stats';
-	sig := geev(e, 'Record Header\Signature');
+	
+	// get record signature
+	sig := Signature(e);
 
 	// Ingestibles, Ammunition, Armor, Books, Keys, Lights, Misc. Items, Weapons
 	if (sig = 'ALCH')	or (sig = 'AMMO')	or (sig = 'ARMO')
@@ -839,9 +899,6 @@ begin
 	// list of tags
 	slTags := TStringList.Create;
 	slTags.Delimiter := ','; // separated by comma
-	
-	// list of master files
-	slMasters := TStringList.Create;
 
 	// what game is loaded
 	game := GetFileName(FileByLoadOrder(00));
@@ -865,28 +922,43 @@ var
 	sig, fm: string;
 	i: integer;
 begin
-	// exit if the user aborted, or the record is identical to master
-	if (optionSelected = mrAbort)
-	or (ConflictAllForMainRecord(e) < caOverride) then
+	
+	{Ignore file header records}
+	if Signature(e) = 'TES4' then
 		exit;
 	
+	{DEBUG}
+	//AddMessage(SmallName(e));
+	
+	{get file and file name}
 	fi := GetFile(e);
 	fn := GetFileName(fi);
+	
+	{Exit if the user aborted, or the record is identical to master}
+	if (optionSelected = mrAbort) then
+		exit;
+	
+	{Exit if the conflict isn't worth the effort}
+	if (ConflictAllForMainRecord(e) = caUnknown)
+	or (ConflictAllForMainRecord(e) = caConflict)
+	or (ConflictAllForMainRecord(e) = caConflictCritical) then
+		exit;
 
-	// get master record
+	{get master record}
 	o := Master(e);
 	if not Assigned(o) then
 		exit;
 	
-	// if record overrides several masters, then get the last one
+	{if record overrides several masters, then get the last one}
 	if OverrideCount(o) > 1 then
 		o := OverrideByIndex(o, OverrideCount(o) - 2);
 
-	// v1.3.4 Stop processing deleted records to avoid errors
+	{v1.3.4 Stop processing deleted records to avoid errors}
 	if GetIsDeleted(e) or GetIsDeleted(o) then
 		exit;
 
-	sig := geev(e, 'Record Header\Signature');
+	// get record signature
+	sig := Signature(e);
 
 	//---------------------------------------------------------------------------
 	//Fallout 3
@@ -946,9 +1018,13 @@ begin
 		{Invent - special handling for CREA and NPC_ record types}
 		if (sig = 'NPC_') or (sig = 'CREA') then begin
 			// If the Use Inventory (0x256) template flag is set, skip record to handle inheritance
-			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Inventory')
-			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Inventory') then
-				exit;
+			if Assigned(GetElement(e, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(e, 'ACBS\Template Flags'), 'Use Inventory') then
+					exit;
+			if Assigned(GetElement(o, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(o, 'ACBS\Template Flags'), 'Use Inventory') then
+					exit;
+			Result := CheckInvent(e, o, false);
 		end;
 
 		//Various Record Types
@@ -970,9 +1046,12 @@ begin
 		{Names - special handling for CREA and NPC_ record types}
 		if (sig = 'CREA') or (sig = 'NPC_') then begin
 			// If the Use Base Data (0x128) template flag is set, skip record to handle inheritance
-			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Base Data')
-			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Base Data') then
-				exit;
+			if Assigned(GetElement(e, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(e, 'ACBS\Template Flags'), 'Use Base Data') then
+					exit;
+			if Assigned(GetElement(o, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(o, 'ACBS\Template Flags'), 'Use Base Data') then
+					exit;
 			Result := Evaluate(e, o, 'FULL', 'Names', false);
 		end;
 
@@ -984,9 +1063,12 @@ begin
 		{Sound - special handling for CREA record type}
 		if (sig = 'CREA') then begin
 			// If the Use Model/Animation (0x64) template flag is set, skip record to handle inheritance
-			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Model/Animation')
-			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Model/Animation') then
-				exit;
+			if Assigned(GetElement(e, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(e, 'ACBS\Template Flags'), 'Use Model/Animation') then
+					exit;
+			if Assigned(GetElement(o, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(o, 'ACBS\Template Flags'), 'Use Model/Animation') then
+					exit;
 			Result := CheckSound(e, o, false);
 		end;
 
@@ -1015,35 +1097,44 @@ begin
 		{Actors.AIData}
 		if (sig = 'NPC_') or (sig = 'CREA') then begin
 			// If the Use AI Data (0x16) template flag is set, skip record to handle inheritance
-			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use AI Data')
-			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use AI Data') then
-				exit;
+			if Assigned(GetElement(e, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(e, 'ACBS\Template Flags'), 'Use AI Data') then
+					exit;
+			if Assigned(GetElement(o, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(o, 'ACBS\Template Flags'), 'Use AI Data') then
+					exit;
 			Result := CheckActorsAIData(e, o, false);
 		end;
 
 		{Actors.AIPackages}
 		if (sig = 'NPC_') or (sig = 'CREA') then begin
 			// If the Use AI Packages (0x32) template flag is set, skip record to handle inheritance
-			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use AI Packages')
-			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use AI Packages') then
-				exit;
+			if Assigned(GetElement(e, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(e, 'ACBS\Template Flags'), 'Use AI Packages') then
+					exit;
+			if Assigned(GetElement(o, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(o, 'ACBS\Template Flags'), 'Use AI Packages') then
+					exit;
 			Result := CheckActorsAIPackages(e, o, false);
 		end;
 
 		{Actors.Anims}
 		if (sig = 'CREA') then begin
 			// If the Use Model/Animation (0x64) template flag is set, skip record to handle inheritance
-			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Model/Animation')
-			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Model/Animation') then
-				exit;
+			if Assigned(GetElement(e, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(e, 'ACBS\Template Flags'), 'Use Model/Animation') then
+					exit;
+			if Assigned(GetElement(o, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(o, 'ACBS\Template Flags'), 'Use Model/Animation') then
+					exit;
 			Result := Evaluate(e, o, 'KFFZ', 'Actors.Anims', false);
 		end;
 
 		{Actors.CombatStyle}
 		if (sig = 'NPC_') or (sig = 'CREA') then begin
 			// If the Use Traits (0x1) template flag is set, skip record to handle inheritance
-			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Traits')
-			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Traits') then
+			if IsFlagSet(GetElement(e, 'ACBS\Template Flags'), 'Use Traits')
+			or IsFlagSet(GetElement(o, 'ACBS\Template Flags'), 'Use Traits') then
 				exit;
 			Result := Evaluate(e, o, 'ZNAM', 'Actors.CombatStyle', false);
 		end;
@@ -1051,8 +1142,8 @@ begin
 		{Actors.DeathItem}
 		if (sig = 'NPC_') or (sig = 'CREA') then begin
 			// If the Use Traits (0x1) template flag is set, skip record to handle inheritance
-			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Traits')
-			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Traits') then
+			if IsFlagSet(GetElement(e, 'ACBS\Template Flags'),'Use Traits')
+			or IsFlagSet(GetElement(o, 'ACBS\Template Flags'), 'Use Traits') then
 				exit;
 			Result := Evaluate(e, o, 'INAM', 'Actors.DeathItem', false);
 		end;
@@ -1060,54 +1151,72 @@ begin
 		{Actors.Skeleton}
 		if (sig = 'NPC_') or (sig = 'CREA') then begin
 			// If the Use Model/Animation (0x64) template flag is set, skip record to handle inheritance
-			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Model/Animation')
-			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Model/Animation') then
-				exit;
+			if Assigned(GetElement(e, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(e, 'ACBS\Template Flags'), 'Use Model/Animation') then
+					exit;
+			if Assigned(GetElement(o, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(o, 'ACBS\Template Flags'), 'Use Model/Animation') then
+					exit;
 			Result := CheckActorsSkeleton(e, o, false);
 		end;
 
 		{Actors.Stats}
 		if (sig = 'NPC_') or (sig = 'CREA') then begin
 			// If the Use Stats (0x2) template flag is set, skip record to handle inheritance
-			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Stats')
-			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Stats') then
-				exit;
+			if Assigned(GetElement(e, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(e, 'ACBS\Template Flags'), 'Use Stats') then
+					exit;
+			if Assigned(GetElement(o, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(o, 'ACBS\Template Flags'), 'Use Stats') then
+					exit;
 			Result := CheckActorsStats(e, o, false);
 		end;
 
 		{Factions}
 		if (sig = 'NPC_') or (sig = 'CREA') then begin
 			// If the Use Factions (0x4) template flag is set, skip record to handle inheritance
-			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Factions')
-			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Factions') then
-				exit;
-			Result := Evaluate(e, o, 'Factions', 'Factions', false);
+			if Assigned(GetElement(e, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(e, 'ACBS\Template Flags'), 'Use Factions') then
+					exit;
+			if Assigned(GetElement(o, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(o, 'ACBS\Template Flags'), 'Use Factions') then
+					exit;
+			Result := CheckActorsFactions(e, o, false);
 		end;
 
 		{NPC.Class}
 		if (sig = 'NPC_') then begin
 			// If the Use Traits (0x1) template flag is set, skip record to handle inheritance
-			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Traits')
-			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Traits') then
-				exit;
+			if Assigned(GetElement(e, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(e, 'ACBS\Template Flags'), 'Use Traits') then
+					exit;
+			if Assigned(GetElement(o, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(o, 'ACBS\Template Flags'), 'Use Traits') then
+					exit;
 			Result := Evaluate(e, o, 'CNAM', 'NPC.Class', false);
 		end;
 
 		{NPC.Race}
 		if (sig = 'NPC_') then begin
 			// If the Use Traits (0x1) template flag is set, skip record to handle inheritance
-			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Traits')
-			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Traits') then
-				exit;
+			if Assigned(GetElement(e, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(e, 'ACBS\Template Flags'), 'Use Traits') then
+					exit;
+			if Assigned(GetElement(o, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(o, 'ACBS\Template Flags'), 'Use Traits') then
+					exit;
 			Result := Evaluate(e, o, 'RNAM', 'NPC.Race', false);
 		end;
 
 		{NPCFaces}
 		if (sig = 'NPC_') then begin
 			// If the Use Model/Animation (0x64) template flag is set, skip record to handle inheritance
-			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Model/Animation')
-			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Model/Animation') then
-				exit;
+			if Assigned(GetElement(e, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(e, 'ACBS\Template Flags'), 'Use Model/Animation') then
+					exit;
+			if Assigned(GetElement(o, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(o, 'ACBS\Template Flags'), 'Use Model/Animation') then
+					exit;
 			Result := CheckNPCFaces(e, o, false);
 		end;
 
@@ -1184,9 +1293,12 @@ begin
 		{Destructible - special handling for CREA and NPC_ record types}
 		if (sig = 'CREA') or (sig = 'NPC_') then begin
 			// If the Use Model/Animation (0x64) template flag is set, skip record to handle inheritance
-			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Model/Animation')
-			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Model/Animation') then
-				exit;
+			if Assigned(GetElement(e, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(e, 'ACBS\Template Flags'), 'Use Model/Animation') then
+					exit;
+			if Assigned(GetElement(o, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(o, 'ACBS\Template Flags'), 'Use Model/Animation') then
+					exit;
 			Result := CheckDestructible(e, o, false);
 		end;
 
@@ -1201,9 +1313,12 @@ begin
 		{Scripts - special handling for CREA and NPC_ record types}
 		if (sig = 'CREA') or (sig = 'NPC_') then begin
 			// If the Use Script (0x512) template flag is set, skip record to handle inheritance
-			if HasFlag(ElementByPath(e, 'ACBS\Template Flags'), 'Use Script')
-			or HasFlag(ElementByPath(o, 'ACBS\Template Flags'), 'Use Script') then
-				exit;
+			if Assigned(GetElement(e, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(e, 'ACBS\Template Flags'), 'Use Script') then
+					exit;
+			if Assigned(GetElement(o, 'ACBS\Template Flags')) then
+				if IsFlagSet(GetElement(o, 'ACBS\Template Flags'), 'Use Script') then
+					exit;
 			Result := Evaluate(e, o, 'SCRI', 'Scripts', false);
 		end;
 
@@ -1235,7 +1350,7 @@ function Finalize: integer;
 var
 	hdr, desc: IInterface;
 begin
-	if (optionSelected = mrAbort) or (not Assigned(slTags)) then
+	if (optionSelected = mrAbort) or (not Assigned(slTags)) or (not Assigned(fn)) then
 		exit;
 
 	slTags.Sort;
@@ -1246,9 +1361,9 @@ begin
 		
 		if optionSelected = 6 then begin
 			AddMessage('Added tags to file header: ' + #13#10 + Format('{{BASH:%s}}', [slTags.DelimitedText]));
-			hdr := ElementBySignature(fi, 'TES4');
+			hdr := GetElement(fi, 'TES4');
 			if Assigned(hdr) then begin
-				desc := ElementBySignature(hdr, 'SNAM');
+				desc := GetElement(hdr, 'SNAM');
 				if not Assigned(desc) then
 					desc := Add(hdr, 'SNAM', false);
 				SetEditValue(desc, Format('{{BASH:%s}}', [slTags.DelimitedText]));
@@ -1259,8 +1374,13 @@ begin
 	
 	end;
 
-	if slTags.Count = 0 then
+	if slTags.Count = 0 then begin
 		AddMessage('No tags suggested');
+		
+		desc := GetElement(GetElement(fi, 'TES4'), 'SNAM');
+		if (optionSelected = 6) and Assigned(desc) then
+			Remove(desc);
+	end;
 
 	AddMessage(#13#10 + '-------------------------------------------------------------------------------' + #13#10);
 
