@@ -425,7 +425,7 @@ begin
 	end;
 
 	Evaluate(a, am, 'Teaches', tag, debug);
-	Evaluate(a, m, 'Maximum training level'), tag, debug);
+	Evaluate(a, am, 'Maximum training level'), tag, debug);
 end;
 
 {==================================================================}
