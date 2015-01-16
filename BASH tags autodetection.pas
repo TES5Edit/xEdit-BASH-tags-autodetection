@@ -914,7 +914,7 @@ begin
 			EvaluateEx(e, o, 'FULL', 'C.Name', false);				// C.Name
 			EvaluateEx(e, o, 'Ownership', 'C.Owner', false);	// C.Owner
 			CheckCellRecordFlags(e, o, false);								// C.RecordFlags
-			CheckCellWater(e, o, true);											// C.Water
+			CheckCellWater(e, o, false);											// C.Water
 			if IsSkyrim(game) then
 				EvaluateEx(e, o, 'XLCN', 'C.Location', false);	// C.Location
 		end;
