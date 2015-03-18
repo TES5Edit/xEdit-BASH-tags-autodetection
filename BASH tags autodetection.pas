@@ -24,6 +24,10 @@ unit BashTagsDetector;
 
 uses mteFunctions;
 
+const
+  usesEvalDebugFunction = true;
+  usesCheckDebugFunction = true;
+
 var
 	f: IwbFile;
 	slTags: TStringList;
@@ -905,55 +909,55 @@ begin
 		// Cell Record Type
 
 		if (sig = 'CELL') then begin
-			EvaluateEx(e, o, 'XCAS', 'C.Acoustic', false);		// C.Acoustic
-			CheckCellClimate(e, o, false);										// C.Climate
-			EvaluateEx(e, o, 'XEZN', 'C.Encounter', false);		// C.Encounter
-			EvaluateEx(e, o, 'XCIM', 'C.ImageSpace', false);	// C.ImageSpace
-			EvaluateEx(e, o, 'XCLL', 'C.Light', false);				// C.Light
-			EvaluateEx(e, o, 'XCMO', 'C.Music', false);				// C.Music
-			EvaluateEx(e, o, 'FULL', 'C.Name', false);				// C.Name
-			EvaluateEx(e, o, 'Ownership', 'C.Owner', false);	// C.Owner
-			CheckCellRecordFlags(e, o, false);								// C.RecordFlags
-			CheckCellWater(e, o, false);											// C.Water
+			EvaluateEx(e, o, 'XCAS', 'C.Acoustic', usesEvalDebugFunction);		// C.Acoustic
+			CheckCellClimate(e, o, usesCheckDebugFunction);										// C.Climate
+			EvaluateEx(e, o, 'XEZN', 'C.Encounter', usesEvalDebugFunction);		// C.Encounter
+			EvaluateEx(e, o, 'XCIM', 'C.ImageSpace', usesEvalDebugFunction);	// C.ImageSpace
+			EvaluateEx(e, o, 'XCLL', 'C.Light', usesEvalDebugFunction);				// C.Light
+			EvaluateEx(e, o, 'XCMO', 'C.Music', usesEvalDebugFunction);				// C.Music
+			EvaluateEx(e, o, 'FULL', 'C.Name', usesEvalDebugFunction);				// C.Name
+			EvaluateEx(e, o, 'Ownership', 'C.Owner', usesEvalDebugFunction);	// C.Owner
+			CheckCellRecordFlags(e, o, usesCheckDebugFunction);								// C.RecordFlags
+			CheckCellWater(e, o, usesCheckDebugFunction);											// C.Water
 			if IsSkyrim(game) then
-				EvaluateEx(e, o, 'XLCN', 'C.Location', false);	// C.Location
+				EvaluateEx(e, o, 'XLCN', 'C.Location', usesEvalDebugFunction);	// C.Location
 		end;
 
 		// Leveled List Record Types
 
 		if InSignatureList(sig, 'LVLC, LVLI, LVLN, LVSP') then
-			CheckDelevRelev(e, o, false);
+			CheckDelevRelev(e, o, usesCheckDebugFunction);
 
 		// Actor and Container Record Types
 
 		if (sig = 'CONT') then
-			CheckInvent(e, o, false);
+			CheckInvent(e, o, usesCheckDebugFunction);
 
 		if InSignatureList(sig, 'CREA, NPC_') then begin
 			if not CompareFlagsOr(e, o, 'ACBS\Template Flags', 'Use Inventory') then
-				CheckInvent(e, o, false);									// Invent - special handling for CREA and NPC_ record types
+				CheckInvent(e, o, usesCheckDebugFunction);									// Invent - special handling for CREA and NPC_ record types
 
 			if not CompareFlagsOr(e, o, 'ACBS\Template Flags', 'Use Base Data') then
-				EvaluateEx(e, o, 'FULL', 'Names', false);	// Names - special handling for CREA and NPC_ record types
+				EvaluateEx(e, o, 'FULL', 'Names', usesEvalDebugFunction);	// Names - special handling for CREA and NPC_ record types
 
 			if (sig = 'CREA') then
 				if not CompareFlagsOr(e, o, 'ACBS\Template Flags', 'Use Model/Animation') then
-					CheckSound(e, o, false);								// Sound - special handling for CREA record type
+					CheckSound(e, o, usesCheckDebugFunction);								// Sound - special handling for CREA record type
 		end;
 
 		// Various Record Types
 
 		if InSignatureList(sig, 'ACTI, ALCH, AMMO, BOOK, CLAS, DOOR, FLOR, FURN, GRAS, INGR, KEYM, LIGH, LSCR, LTEX, MGEF, MISC, REGN, STAT, TREE, WEAP') then
-			CheckGraphics(e, o, false);
+			CheckGraphics(e, o, usesCheckDebugFunction);
 
 		if InSignatureList(sig, 'ACHR, CELL, CREA, NAVM, NPC_, REFR') then
-			EvaluateEx(e, o, 'FULL', 'Names', false);
+			EvaluateEx(e, o, 'FULL', 'Names', usesEvalDebugFunction);
 
 		if InSignatureList(sig, 'ACTI, CONT, DOOR, LIGH, MGEF, WTHR') then
-			CheckSound(e, o, false);
+			CheckSound(e, o, usesCheckDebugFunction);
 
 		if InSignatureList(sig, 'ALCH, AMMO, ARMO, BOOK, KEYM, LIGH, MISC, WEAP') then
-			CheckStats(e, o, false);
+			CheckStats(e, o, usesCheckDebugFunction);
 	end;
 
 
@@ -965,49 +969,49 @@ begin
 
 		if InSignatureList(sig, 'CREA, NPC_') then begin
 			if not CompareFlagsOr(e, o, 'ACBS\Template Flags', 'Use Stats') then
-				CheckActorsACBS(e, o, false);
+				CheckActorsACBS(e, o, usesCheckDebugFunction);
 
 			if not CompareFlagsOr(e, o, 'ACBS\Template Flags', 'Use AI Data') then
-				CheckActorsAIData(e, o, false);
+				CheckActorsAIData(e, o, usesCheckDebugFunction);
 
 			if not CompareFlagsOr(e, o, 'ACBS\Template Flags', 'Use AI Packages') then
-				CheckActorsAIPackages(e, o, false);
+				CheckActorsAIPackages(e, o, usesCheckDebugFunction);
 
 			if not CompareFlagsOr(e, o, 'ACBS\Template Flags', 'Use Model/Animation') then begin
-				CheckActorsSkeleton(e, o, false);
-				CheckDestructible(e, o, false);	// Destructible - special handling for CREA and NPC_ record types
+				CheckActorsSkeleton(e, o, usesCheckDebugFunction);
+				CheckDestructible(e, o, usesCheckDebugFunction);	// Destructible - special handling for CREA and NPC_ record types
 			end;
 
 			if not CompareFlagsOr(e, o, 'ACBS\Template Flags', 'Use Traits') then begin
-				EvaluateEx(e, o, 'ZNAM', 'Actors.CombatStyle', false);
-				EvaluateEx(e, o, 'INAM', 'Actors.DeathItem', false);
+				EvaluateEx(e, o, 'ZNAM', 'Actors.CombatStyle', usesEvalDebugFunction);
+				EvaluateEx(e, o, 'INAM', 'Actors.DeathItem', usesEvalDebugFunction);
 			end;
 
 			if not CompareFlagsOr(e, o, 'ACBS\Template Flags', 'Use Stats') then
-				CheckActorsStats(e, o, false);
+				CheckActorsStats(e, o, usesCheckDebugFunction);
 
 			if not CompareFlagsOr(e, o, 'ACBS\Template Flags', 'Use Factions') then
-				CheckActorsFactions(e, o, false);
+				CheckActorsFactions(e, o, usesCheckDebugFunction);
 
 			if not CompareFlagsOr(e, o, 'ACBS\Template Flags', 'Use Script') then
-				EvaluateEx(e, o, 'SCRI', 'Scripts', false);
+				EvaluateEx(e, o, 'SCRI', 'Scripts', usesEvalDebugFunction);
 			
 			// CREA Only
 			// -------------------------------------------------------------------------
 			if (sig = 'CREA') then
 				if not CompareFlagsOr(e, o, 'ACBS\Template Flags', 'Use Model/Animation') then
-					EvaluateEx(e, o, 'KFFZ', 'Actors.Anims', false);
+					EvaluateEx(e, o, 'KFFZ', 'Actors.Anims', usesEvalDebugFunction);
 
 			// NPC_ Only
 			// -------------------------------------------------------------------------
 			if (sig = 'NPC_') then begin
 				if not CompareFlagsOr(e, o, 'ACBS\Template Flags', 'Use Traits') then begin
-					EvaluateEx(e, o, 'CNAM', 'NPC.Class', false);
-					EvaluateEx(e, o, 'RNAM', 'NPC.Race', false);
+					EvaluateEx(e, o, 'CNAM', 'NPC.Class', usesEvalDebugFunction);
+					EvaluateEx(e, o, 'RNAM', 'NPC.Race', usesEvalDebugFunction);
 				end;
 
 				if not CompareFlagsOr(e, o, 'ACBS\Template Flags', 'Use Model/Animation') then
-					CheckNPCFaces(e, o, false);
+					CheckNPCFaces(e, o, usesCheckDebugFunction);
 			end;
 
 		end;
@@ -1015,45 +1019,45 @@ begin
 		// Faction Record Type
 
 		if (sig = 'FACT') then
-			EvaluateEx(e, o, 'Relations', 'Relations', false);
+			EvaluateEx(e, o, 'Relations', 'Relations', usesEvalDebugFunction);
 
 		// Race Record Type
 
 		if (sig = 'RACE') then begin
-			CheckRaceBody(e, o, 'Body-F', false); 												// Body-F
-			CheckRaceBody(e, o, 'Body-M', false); 												// Body-M
-			CheckRaceBody(e, o, 'Body-Size-F', false); 										// Body-Size-F
-			CheckRaceBody(e, o, 'Body-Size-M', false); 										// Body-Size-M
-			EvaluateEx(e, o, 'ENAM', 'Eyes', false); 											// Eyes
-			EvaluateEx(e, o, 'HNAM', 'Hair', false); 											// Hair
-			EvaluateEx(e, o, 'DESC', 'R.Description', false);							// R.Description
-			CheckRaceHead(e, o, 'R.Ears', false);													// R.Ears
-			CheckRaceHead(e, o, 'R.Head', false);													// R.Head
-			CheckRaceHead(e, o, 'R.Mouth', false);												// R.Mouth
-			EvaluateEx(e, o, 'Relations', 'R.Relations', false);					// R.Relations
-			EvaluateEx(e, o, 'DATA\Skill Boosts', 'R.Skills', false);			// R.Skills
-			CheckRaceHead(e, o, 'R.Teeth', false);												// R.Teeth
-			EvaluateEx(e, o, 'VTCK\Voice #1 (Female)', 'Voice-F', false);	// Voice-F
-			EvaluateEx(e, o, 'VTCK\Voice #0 (Male)', 'Voice-M', false);		// Voice-M
+			CheckRaceBody(e, o, 'Body-F', usesCheckDebugFunction); 												// Body-F
+			CheckRaceBody(e, o, 'Body-M', usesCheckDebugFunction); 												// Body-M
+			CheckRaceBody(e, o, 'Body-Size-F', usesCheckDebugFunction); 										// Body-Size-F
+			CheckRaceBody(e, o, 'Body-Size-M', usesCheckDebugFunction); 										// Body-Size-M
+			EvaluateEx(e, o, 'ENAM', 'Eyes', usesEvalDebugFunction); 											// Eyes
+			EvaluateEx(e, o, 'HNAM', 'Hair', usesEvalDebugFunction); 											// Hair
+			EvaluateEx(e, o, 'DESC', 'R.Description', usesEvalDebugFunction);							// R.Description
+			CheckRaceHead(e, o, 'R.Ears', usesCheckDebugFunction);													// R.Ears
+			CheckRaceHead(e, o, 'R.Head', usesCheckDebugFunction);													// R.Head
+			CheckRaceHead(e, o, 'R.Mouth', usesCheckDebugFunction);												// R.Mouth
+			EvaluateEx(e, o, 'Relations', 'R.Relations', usesEvalDebugFunction);					// R.Relations
+			EvaluateEx(e, o, 'DATA\Skill Boosts', 'R.Skills', usesEvalDebugFunction);			// R.Skills
+			CheckRaceHead(e, o, 'R.Teeth', usesCheckDebugFunction);												// R.Teeth
+			EvaluateEx(e, o, 'VTCK\Voice #1 (Female)', 'Voice-F', usesEvalDebugFunction);	// Voice-F
+			EvaluateEx(e, o, 'VTCK\Voice #0 (Male)', 'Voice-M', usesEvalDebugFunction);		// Voice-M
 		end;
 
 		// Spell (Actor Effect) Record Type
 
 		if (sig = 'SPEL') then
-			CheckSpellStats(e, o, false);
+			CheckSpellStats(e, o, usesCheckDebugFunction);
 
 		// Weapon Record Type
 
 		if (sig = 'WEAP') then
-			EvaluateEx(e, o, 'Weapon Mods', 'WeaponMods', false);
+			EvaluateEx(e, o, 'Weapon Mods', 'WeaponMods', usesEvalDebugFunction);
 
 		// Various Record Types
 
 		if InSignatureList(sig, 'ACTI, ALCH, AMMO, BOOK, CONT, DOOR, FURN, IMOD, KEYM, MISC, MSTT, PROJ, TACT, TERM, WEAP') then
-			CheckDestructible(e, o, false);
+			CheckDestructible(e, o, usesCheckDebugFunction);
 
 		if InSignatureList(sig, 'ACTI, ALCH, ARMO, CONT, DOOR, FLOR, FURN, INGR, KEYM, LIGH, LVLC, MISC, QUST, WEAP') then
-			EvaluateEx(e, o, 'SCRI', 'Scripts', false);
+			EvaluateEx(e, o, 'SCRI', 'Scripts', usesEvalDebugFunction);
 	end;
 end;
 
